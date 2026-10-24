@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><title>shot-admin</title></head>
+<body>
+<script>
+(function () {
+  try {
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/auth/login', false);
+    xhr.setRequestHeader('Content-Type', 'application/json');
+    xhr.send(JSON.stringify({ username: 'admin', password: 'admin123' }));
+    var d = JSON.parse(xhr.responseText);
+    if (d && d.token) {
+      localStorage.setItem('xunwu_admin_token', d.token);
+    }
+  } catch (e) {
+    document.body.innerHTML = 'LOGIN FAILED';
+    return;
+  }
+  location.href = '/admin';
+})();
+</script>
+</body>
+</html>

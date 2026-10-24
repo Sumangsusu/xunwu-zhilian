@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>寻物智联 · 入口</title>
+    <style>
+        :root {
+            --paper: #F4EDDF;
+            --paper-card: #FFFDF7;
+            --ink: #20304F;
+            --blue: #2E63B8;
+            --orange: #F28A2E;
+            --yellow: #F6C445;
+            --green: #3F9D6E;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: "Inter", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+            min-height: 100vh;
+            background: var(--ink);
+            color: var(--ink);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            position: relative;
+            overflow: hidden;
+        }
+        /* 拼贴背景色块 */
+        body::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background-image:
+                radial-gradient(circle at 12% 18%, rgba(242,138,46,.35) 0, transparent 26%),
+                radial-gradient(circle at 88% 82%, rgba(46,99,184,.45) 0, transparent 30%),
+                radial-gradient(circle at 85% 12%, rgba(63,157,110,.28) 0, transparent 22%),
+                radial-gradient(circle at 15% 88%, rgba(246,196,69,.22) 0, transparent 24%);
+            pointer-events: none;
+        }
+        .dots {
+            position: absolute; inset: 0;
+            background-image: radial-gradient(rgba(255,255,255,.08) 1.5px, transparent 1.5px);
+            background-size: 26px 26px;
+            pointer-events: none;
+        }
+        .card {
+            position: relative;
+            width: 100%;
+            max-width: 460px;
+            background: var(--paper-card);
+            border: 2px solid var(--ink);
+            border-radius: 22px;
+            box-shadow: 10px 10px 0 rgba(0,0,0,.35);
+            padding: 40px 36px;
+            text-align: center;
+            z-index: 1;
+        }
+        .logo {
+            width: 72px; height: 72px;
+            margin: 0 auto 20px;
+            border-radius: 20px;
+            background: linear-gradient(135deg, var(--blue), var(--green));
+            display: flex; align-items: center; justify-content: center;
+            font-size: 32px; color: #fff;
+            box-shadow: 0 8px 20px rgba(46,99,184,.35);
+        }
+        h1 {
+            font-size: 28px;
+            font-weight: 800;
+            color: var(--ink);
+            margin-bottom: 8px;
+        }
+        .sub {
+            color: #6b7488;
+            font-size: 14px;
+            line-height: 1.7;
+            margin-bottom: 26px;
+        }
+        /* 加载态 */
+        .spinner {
+            width: 42px; height: 42px;
+            margin: 6px auto 16px;
+            border: 4px solid rgba(46,99,184,.18);
+            border-top-color: var(--blue);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .loading-text { color: var(--blue); font-weight: 600; font-size: 15px; }
+        .loading-tip { color: #9aa3b5; font-size: 12.5px; margin-top: 10px; }
+        /* 离线引导 */
+        .offline { display: none; text-align: left; }
+        .offline.show { display: block; }
+        .loading.hide { display: none; }
+        .offline-head {
+            display: flex; align-items: center; gap: 10px;
+            background: rgba(225,91,79,.1);
+            border: 1px solid rgba(225,91,79,.35);
+            color: #c0473c;
+            padding: 12px 14px;
+            border-radius: 12px;
+            font-weight: 600;
+            font-size: 14px;
+            margin-bottom: 18px;
+        }
+        .steps {
+            background: var(--paper);
+            border: 1.5px dashed rgba(32,48,79,.3);
+            border-radius: 12px;
+            padding: 16px 18px;
+            margin-bottom: 18px;
+        }
+        .steps li {
+            list-style: none;
+            font-size: 13.5px;
+            color: #4a5468;
+            line-height: 1.7;
+            padding-left: 24px;
+            position: relative;
+            margin-bottom: 6px;
+        }
+        .steps li::before {
+            content: attr(data-n);
+            position: absolute; left: 0; top: 1px;
+            width: 17px; height: 17px;
+            border-radius: 50%;
+            background: var(--orange);
+            color: #fff;
+            font-size: 11px;
+            font-weight: 700;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .bat-name {
+            display: inline-block;
+            background: #fff;
+            border: 1px solid var(--ink);
+            border-radius: 6px;
+            padding: 1px 7px;
+            font-weight: 700;
+            color: var(--ink);
+            font-size: 12.5px;
+        }
+        .btn {
+            display: flex; align-items: center; justify-content: center; gap: 8px;
+            width: 100%;
+            padding: 13px;
+            border-radius: 12px;
+            font-size: 15px;
+            font-weight: 700;
+            text-decoration: none;
+            cursor: pointer;
+            border: 2px solid var(--ink);
+            transition: transform .12s, box-shadow .12s;
+            margin-bottom: 10px;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, var(--blue), var(--green));
+            color: #fff;
+            border-color: var(--ink);
+        }
+        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 18px rgba(46,99,184,.3); }
+        .btn-ghost {
+            background: #fff;
+            color: var(--ink);
+        }
+        .btn-ghost:hover { background: var(--yellow); }
+        .foot {
+            margin-top: 22px;
+            font-size: 12px;
+            color: #9aa3b5;
+        }
+        code.addr {
+            background: var(--paper);
+            border-radius: 5px;
+            padding: 1px 6px;
+            color: var(--blue);
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+    <div class="dots"></div>
+    <div class="card">
+        <div class="logo">🔍</div>
+        <h1>寻物智联</h1>
+        <p class="sub">智能失物招领平台 · 艺术学院课程项目</p>
+
+        <!-- 加载中 -->
+        <div class="loading" id="loadingBox">
+            <div class="spinner"></div>
+            <div class="loading-text">正在进入最终页面，请稍候…</div>
+            <div class="loading-tip">正在连接本地服务 <code class="addr">http://localhost:3000</code></div>
+        </div>
+
+        <!-- 服务未启动 -->
+        <div class="offline" id="offlineBox">
+            <div class="offline-head">
+                <span>⚠️</span>
+                <span>本地服务还没有启动</span>
+            </div>
+            <p style="font-size:13px;color:#6b7488;line-height:1.7;margin-bottom:14px;">
+                最终版是带<b>数据库与登录</b>的完整网站，不能直接双击网页打开，需要先启动本地服务：
+            </p>
+            <ul class="steps">
+                <li data-n="1">打开本文件夹，双击 <span class="bat-name">启动寻物智联.bat</span></li>
+                <li data-n="2">等待几秒，会自动打开浏览器进入网站</li>
+                <li data-n="3">保持弹出的黑色服务窗口不要关闭</li>
+            </ul>
+            <button class="btn btn-primary" onclick="retry()">
+                <span>🔄</span> 我已启动，重新进入
+            </button>
+            <a class="btn btn-ghost" href="http://localhost:3000/index.html" target="_blank">
+                直接打开 <code class="addr">localhost:3000</code>
+            </a>
+        </div>
+
+        <div class="foot">若反复失败，请确认已安装 Node.js 并在本文件夹执行过 <code class="addr">npm install</code></div>
+    </div>
+
+    <script>
+        var TARGET = 'http://localhost:3000';
+        function enter() {
+            window.location.replace(TARGET + '/index.html');
+        }
+        function showOffline() {
+            document.getElementById('loadingBox').classList.add('hide');
+            document.getElementById('offlineBox').classList.add('show');
+        }
+        function showLoading() {
+            document.getElementById('loadingBox').classList.remove('hide');
+            document.getElementById('offlineBox').classList.remove('show');
+        }
+        // 探测本地服务是否在线：在线则立即跳转，离线/超时则显示引导
+        function check() {
+            showLoading();
+            var ctrl = new AbortController();
+            var timer = setTimeout(function () { ctrl.abort(); }, 2500);
+            fetch(TARGET + '/api/items/stats', { mode: 'no-cors', cache: 'no-store', signal: ctrl.signal })
+                .then(function () { clearTimeout(timer); enter(); })
+                .catch(function () { clearTimeout(timer); showOffline(); });
+        }
+        function retry() { check(); }
+        window.addEventListener('load', function () {
+            // 稍作延迟，给服务一点响应时间
+            setTimeout(check, 300);
+        });
+    </script>
+</body>
+</html>

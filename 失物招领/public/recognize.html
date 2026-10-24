@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>智能识别 - 寻物智联</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#3B82F6',
+                        secondary: '#10B981',
+                        accent: '#F59E0B',
+                        dark: '#1E293B',
+                        light: '#F8FAFC'
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'Noto Sans SC', 'system-ui', 'sans-serif'],
+                        display: ['Inter', 'Noto Sans SC', 'sans-serif']
+                    }
+                }
+            }
+        }
+    </script>
+    <link href="css/style.css" rel="stylesheet">
+</head>
+<body data-page="recognize" class="theme-collage bg-slate-50 text-slate-800 font-sans min-h-screen flex flex-col">
+
+    <!-- ==================== 导航栏 ==================== -->
+    <nav class="fixed top-0 left-0 right-0 z-50 glass border-b border-slate-200/50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center h-16">
+                <a href="index.html" class="flex items-center space-x-2">
+                    <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-secondary flex items-center justify-center">
+                        <i class="fa fa-search text-white text-lg"></i>
+                    </div>
+                    <span class="text-xl font-bold text-gradient font-display">寻物智联</span>
+                </a>
+
+                <div class="hidden md:flex items-center space-x-7">
+                    <a href="index.html" data-nav="home" class="nav-link text-slate-600 hover:text-primary font-medium transition-colors">首页</a>
+                    <a href="lost.html" data-nav="lost" class="nav-link text-slate-600 hover:text-primary font-medium transition-colors">失物列表</a>
+                    <a href="found.html" data-nav="found" class="nav-link text-slate-600 hover:text-primary font-medium transition-colors">招领列表</a>
+                    <a href="heatmap.html" data-nav="heatmap" class="nav-link text-slate-600 hover:text-primary font-medium transition-colors">失物热力图</a>
+                    <a href="recognize.html" data-nav="recognize" class="nav-link text-slate-600 hover:text-primary font-medium transition-colors">智能识别</a>
+                    <a href="publish.html" data-nav="publish" class="nav-link text-slate-600 hover:text-primary font-medium transition-colors">发布信息</a>
+                    <a href="profile.html" data-nav="profile" class="nav-link text-slate-600 hover:text-primary font-medium transition-colors">个人中心</a>
+                    <a href="feedback.html" data-nav="feedback" class="nav-link text-slate-600 hover:text-primary font-medium transition-colors inline-flex items-center gap-1"><i class="fa fa-commenting-o"></i>意见反馈</a>
+                </div>
+
+                <div class="flex items-center space-x-4">
+                    <div id="userArea" class="hidden flex items-center gap-3">
+                        <div class="text-right hidden sm:block">
+                            <div class="text-sm font-medium text-slate-700" id="navUsername">用户</div>
+                            <div class="text-xs text-slate-500">已登录</div>
+                        </div>
+                        <div class="relative">
+                            <button onclick="toggleUserMenu()" class="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-white font-medium overflow-hidden">
+                                <span id="userAvatar">用</span>
+                            </button>
+                            <div id="userMenu" class="hidden absolute right-0 top-12 w-40 bg-white rounded-xl shadow-xl border border-slate-200 py-2">
+                                <a href="profile.html" class="w-full text-left px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 hover:text-primary transition-colors block">
+                                    <i class="fa fa-user-o mr-2"></i>个人中心
+                                </a>
+                                <a href="profile.html#publish" class="w-full text-left px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 hover:text-primary transition-colors block">
+                                    <i class="fa fa-list-ul mr-2"></i>我的发布
+                                </a>
+                                <hr class="my-2 border-slate-100">
+                                <button onclick="logout()" class="w-full text-left px-4 py-2 text-sm text-red-500 hover:bg-red-50 transition-colors">
+                                    <i class="fa fa-sign-out mr-2"></i>退出登录
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <button class="md:hidden text-slate-600 text-xl" id="mobileMenuBtn">
+                        <i class="fa fa-bars"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div id="mobileMenu" class="hidden md:hidden bg-white border-t border-slate-200">
+            <div class="px-4 py-3 space-y-2">
+                <a href="index.html" data-nav="home" class="block py-2 text-slate-600 hover:text-primary">首页</a>
+                <a href="lost.html" data-nav="lost" class="block py-2 text-slate-600 hover:text-primary">失物列表</a>
+                <a href="found.html" data-nav="found" class="block py-2 text-slate-600 hover:text-primary">招领列表</a>
+                <a href="heatmap.html" data-nav="heatmap" class="block py-2 text-slate-600 hover:text-primary">失物热力图</a>
+                <a href="recognize.html" data-nav="recognize" class="block py-2 text-slate-600 hover:text-primary">智能识别</a>
+                <a href="publish.html" data-nav="publish" class="block py-2 text-slate-600 hover:text-primary">发布信息</a>
+                <a href="profile.html" data-nav="profile" class="block py-2 text-slate-600 hover:text-primary">个人中心</a>
+                <a href="feedback.html" data-nav="feedback" class="block py-2 text-primary font-medium hover:text-primary"><i class="fa fa-commenting-o mr-1"></i>意见反馈</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- ==================== 主内容 ==================== -->
+    <main class="flex-grow pt-16">
+                <section class="collage-banner relative overflow-hidden text-white py-20">
+            <div class="cb-shapes">
+                <span class="shape cb-s1"></span><span class="shape cb-s2"></span><span class="shape cb-s3"></span><span class="shape cb-s4"></span>
+            </div>
+            <div class="cb-dots"></div>
+            <div class="tear-edge"></div>
+            <div class="collage-frame tilt-r hidden lg:block" style="right:4%;top:50%;transform:translateY(-50%);width:360px;max-width:32vw;">
+                <img src="images/corner-art-h.png" alt="拼贴插画装饰">
+            </div>
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
+                <div class="max-w-2xl">
+                    <div class="cb-tape"><span>
+AI 智能图像识别
+</span></div>
+                    <h1 class="text-3xl md:text-4xl lg:text-5xl font-bold font-display leading-tight mb-5 cb-title">
+以图搜物
+ <span class="mark-yellow">
+智能匹配
+</span></h1>
+                    <p class="text-slate-300 text-lg leading-relaxed max-w-xl mb-8">
+上传物品照片，AI 自动识别类型、颜色与特征，在数据库中秒级匹配相似物品。
+</p>
+                    <a href="
+lost.html
+" class="btn-glow inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-primary to-secondary text-white rounded-xl font-semibold">
+                        <i class="fa fa-arrow-right"></i><span>
+查看失物列表
+</span>
+                    </a>
+                </div>
+            </div>
+        </section>
+
+        <!-- 上传与识别 -->
+        <section class="py-14 bg-slate-50 relative">
+            <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="grid lg:grid-cols-2 gap-8">
+                    <!-- 左：上传卡片 -->
+                    <div class="card-art p-7">
+                        <div class="flex items-center gap-3 mb-5">
+                            <div class="w-11 h-11 rounded-xl bg-primary/10 text-primary flex items-center justify-center text-xl"><i class="fa fa-cloud-upload"></i></div>
+                            <div>
+                                <h3 class="text-lg font-bold font-display">上传物品照片</h3>
+                                <p class="text-xs text-slate-400">点击或拖拽，AI 即刻识别</p>
+                            </div>
+                        </div>
+                        <div id="uploadZone" class="upload-zone cursor-pointer">
+                            <div id="uploadPlaceholder" class="text-center">
+                                <div class="w-16 h-16 mx-auto mb-4 rounded-2xl bg-primary/10 text-primary flex items-center justify-center text-2xl"><i class="fa fa-picture-o"></i></div>
+                                <p class="font-medium text-slate-700 mb-1">点击上传，或将图片拖到此处</p>
+                                <p class="text-xs text-slate-400">支持 JPG / PNG，图片仅用于智能识别匹配</p>
+                            </div>
+                            <div id="previewContainer" class="hidden">
+                                <img id="imagePreview" alt="物品预览" class="max-h-60 mx-auto rounded-xl border-2 border-[var(--ink)] shadow-[4px_4px_0_rgba(32,48,79,.85)]">
+                            </div>
+                        </div>
+                        <input type="file" id="imageInput" accept="image/*" class="hidden">
+                        <div class="flex flex-wrap gap-3 mt-5">
+                            <button type="button" onclick="useCamera()" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border-2 border-slate-200 text-slate-600 font-medium hover:border-primary hover:text-primary transition-colors">
+                                <i class="fa fa-camera"></i>拍照识别
+                            </button>
+                            <button type="button" onclick="clearImage()" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border-2 border-slate-200 text-slate-600 font-medium hover:border-slate-400 transition-colors">
+                                <i class="fa fa-rotate-left"></i>重新选择
+                            </button>
+                            <button type="button" id="recognizeBtn" onclick="startRecognition()" disabled class="btn-glow flex-1 min-w-[160px] inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-gradient-to-r from-primary to-secondary text-white rounded-xl font-semibold disabled:opacity-40 disabled:cursor-not-allowed">
+                                <i class="fa fa-magic"></i>开始智能识别
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 右：识别结果卡片 -->
+                    <div class="card-art p-7">
+                        <div class="flex items-center gap-3 mb-5">
+                            <div class="w-11 h-11 rounded-xl bg-secondary/10 text-secondary flex items-center justify-center text-xl"><i class="fa fa-magic"></i></div>
+                            <div>
+                                <h3 class="text-lg font-bold font-display">AI 识别结果</h3>
+                                <p class="text-xs text-slate-400">类别 / 颜色 / 特征智能分析</p>
+                            </div>
+                        </div>
+
+                        <!-- 占位 -->
+                        <div id="resultPlaceholder" class="text-center py-16">
+                            <div class="w-16 h-16 mx-auto mb-4 rounded-2xl bg-slate-100 text-slate-300 flex items-center justify-center text-2xl"><i class="fa fa-wand"></i></div>
+                            <p class="text-slate-400 text-sm">上传图片并点击「开始识别」<br>分析结果与匹配物品将显示在这里</p>
+                        </div>
+
+                        <!-- 进度 -->
+                        <div id="recognitionProgress" class="hidden py-10">
+                            <p id="progressText" class="text-sm font-medium text-slate-600 mb-4 text-center">正在加载图像...</p>
+                            <div class="w-full h-3 bg-slate-100 rounded-full overflow-hidden border border-slate-200">
+                                <div id="progressBar" class="h-full bg-gradient-to-r from-primary to-secondary transition-all duration-500" style="width:0%"></div>
+                            </div>
+                        </div>
+
+                        <!-- 结果 -->
+                        <div id="recognitionResult" class="hidden">
+                            <div id="itemTags" class="flex flex-wrap gap-2 mb-6"></div>
+                            <div class="grid grid-cols-2 gap-4 mb-5">
+                                <div class="p-4 bg-slate-50 rounded-xl border-2 border-slate-100">
+                                    <div class="text-xs text-slate-400 mb-1">物品分类</div>
+                                    <div class="font-bold text-slate-800"><span id="itemType">-</span></div>
+                                    <div class="text-xs text-secondary mt-1">置信度 <span id="typeConfidence">-</span></div>
+                                </div>
+                                <div class="p-4 bg-slate-50 rounded-xl border-2 border-slate-100">
+                                    <div class="text-xs text-slate-400 mb-1">识别主色</div>
+                                    <div class="flex items-center gap-2">
+                                        <span id="colorPreview" class="w-6 h-6 rounded-full border-2 border-[var(--ink)] inline-block" style="background-color:#666"></span>
+                                        <span class="font-bold text-slate-800" id="itemColor">-</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="mb-5">
+                                <div class="text-xs text-slate-400 mb-1">识别特征</div>
+                                <div class="text-sm text-slate-700" id="itemFeatures">-</div>
+                            </div>
+                            <div class="border-t-2 border-dashed border-slate-200 pt-4">
+                                <div class="flex items-center justify-between mb-3">
+                                    <h4 class="font-semibold text-slate-800 text-sm"><i class="fa fa-link text-primary mr-1.5"></i>相似物品匹配</h4>
+                                    <span id="matchCount" class="text-xs text-secondary font-medium"></span>
+                                </div>
+                                <div id="matchResults" class="space-y-2 max-h-64 overflow-y-auto"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+        <!-- 智能匹配结果 -->
+        <section id="matchResultSection" class="py-16 bg-slate-50 hidden">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="text-center mb-10">
+                    <h2 class="text-3xl font-bold text-slate-800 mb-3 font-display">智能匹配结果</h2>
+                    <p class="text-slate-500">根据图像识别特征，为你找到以下相似物品</p>
+                </div>
+
+                <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-6" id="matchResultGrid">
+                </div>
+            </div>
+        </section>
+    </main>
+        <footer class="collage-footer">
+        <div class="footer-inner">
+            <div class="grid md:grid-cols-4 gap-8 mb-8">
+                <div>
+                    <div class="flex items-center space-x-2 mb-4">
+                        <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-secondary flex items-center justify-center"><i class="fa fa-search text-white"></i></div>
+                        <span class="text-xl font-bold text-white font-display">寻物智联</span>
+                    </div>
+                    <p class="text-sm leading-relaxed">让每一件失物都能找到回家的路，用科技连接善意。</p>
+                </div>
+                <div>
+                    <h4 class="text-white font-semibold mb-4">快速链接</h4>
+                    <ul class="space-y-2 text-sm">
+                        <li><a href="index.html">首页</a></li><li><a href="lost.html">失物列表</a></li><li><a href="found.html">招领列表</a></li><li><a href="publish.html">发布信息</a></li>
+                    </ul>
+                </div>
+                <div>
+                    <h4 class="text-white font-semibold mb-4">智能服务</h4>
+                    <ul class="space-y-2 text-sm">
+                        <li><a href="recognize.html">智能识别</a></li><li><a href="profile.html">个人中心</a></li><li><a href="login.html">登录 / 注册</a></li><li><a href="admin.html">管理员入口</a></li>
+                    </ul>
+                </div>
+                <div>
+                    <h4 class="text-white font-semibold mb-4">关于平台</h4>
+                    <p class="text-sm leading-relaxed">艺术学院 · 数字媒体专业课程项目<br>用技术与艺术，温暖每一件失物。</p>
+                </div>
+            </div>
+            <div class="border-t border-white/10 pt-8 flex flex-col md:flex-row justify-between items-center text-sm">
+                <p>© 2026 寻物智联 · 让遗失的物品找到回家的路</p>
+                <div class="flex gap-6 mt-4 md:mt-0"><a href="#">隐私政策</a><a href="#">用户协议</a></div>
+            </div>
+        </div>
+    </footer>
+
+    <!-- 物品详情弹窗 -->
+    <div id="itemModal" class="fixed inset-0 z-50 hidden items-center justify-center p-4">
+        <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" onclick="closeModal()"></div>
+        <div class="relative modal-art max-w-lg w-full max-h-[90vh] overflow-y-auto fade-in">
+            <button onclick="closeModal()" class="absolute top-4 right-4 w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center hover:bg-slate-200 transition-colors z-10">
+                <i class="fa fa-times text-slate-600"></i>
+            </button>
+            <div id="modalContent">
+            </div>
+        </div>
+    </div>
+
+    <script src="js/common.js"></script>
+    <script>
+        // ==================== 智能识别逻辑 ====================
+
+        function initUploadZone() {
+            const uploadZone = document.getElementById('uploadZone');
+            const imageInput = document.getElementById('imageInput');
+
+            uploadZone.addEventListener('click', () => imageInput.click());
+
+            uploadZone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                uploadZone.classList.add('dragover');
+            });
+
+            uploadZone.addEventListener('dragleave', () => {
+                uploadZone.classList.remove('dragover');
+            });
+
+            uploadZone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                uploadZone.classList.remove('dragover');
+                const files = e.dataTransfer.files;
+                if (files.length > 0 && files[0].type.startsWith('image/')) {
+                    handleImageFile(files[0]);
+                }
+            });
+
+            imageInput.addEventListener('change', (e) => {
+                if (e.target.files.length > 0) {
+                    handleImageFile(e.target.files[0]);
+                }
+            });
+        }
+
+        function handleImageFile(file) {
+            const reader = new FileReader();
+            reader.onload = function (e) {
+                document.getElementById('imagePreview').src = e.target.result;
+                document.getElementById('uploadPlaceholder').classList.add('hidden');
+                document.getElementById('previewContainer').classList.remove('hidden');
+                document.getElementById('recognizeBtn').disabled = false;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function clearImage() {
+            document.getElementById('imageInput').value = '';
+            document.getElementById('uploadPlaceholder').classList.remove('hidden');
+            document.getElementById('previewContainer').classList.add('hidden');
+            document.getElementById('recognizeBtn').disabled = true;
+            document.getElementById('recognitionProgress').classList.add('hidden');
+            document.getElementById('recognitionResult').classList.add('hidden');
+            document.getElementById('resultPlaceholder').classList.remove('hidden');
+            document.getElementById('matchResultSection').classList.add('hidden');
+        }
+
+        function startRecognition() {
+            const progressDiv = document.getElementById('recognitionProgress');
+            const progressBar = document.getElementById('progressBar');
+            const progressText = document.getElementById('progressText');
+            const resultDiv = document.getElementById('recognitionResult');
+            const placeholder = document.getElementById('resultPlaceholder');
+
+            progressDiv.classList.remove('hidden');
+            document.getElementById('recognizeBtn').disabled = true;
+
+            const steps = [
+                { progress: 20, text: '正在加载图像...' },
+                { progress: 40, text: '提取图像特征...' },
+                { progress: 60, text: '分析物品属性...' },
+                { progress: 80, text: '智能匹配数据库...' },
+                { progress: 100, text: '识别完成！' }
+            ];
+
+            let stepIndex = 0;
+
+            const interval = setInterval(() => {
+                if (stepIndex < steps.length) {
+                    progressBar.style.width = steps[stepIndex].progress + '%';
+                    progressText.textContent = steps[stepIndex].text;
+                    stepIndex++;
+                } else {
+                    clearInterval(interval);
+                    setTimeout(async () => {
+                        progressDiv.classList.add('hidden');
+                        placeholder.classList.add('hidden');
+                        resultDiv.classList.remove('hidden');
+
+                        const recognizeResult = simulateRecognition();
+                        await showRecognitionResult(recognizeResult);
+
+                        setTimeout(() => {
+                            document.getElementById('matchResultSection').classList.remove('hidden');
+                            document.getElementById('matchResultSection').scrollIntoView({ behavior: 'smooth' });
+                        }, 800);
+                    }, 500);
+                }
+            }, 600);
+        }
+
+        function simulateRecognition() {
+            const types = ['钱包', '耳机', '钥匙', '手机', '雨伞', '眼镜', '证件'];
+            const colors = ['黑色', '白色', '蓝色', '红色', '棕色', '银色'];
+            const categories = ['箱包类', '电子数码', '钥匙', '证件文件', '其他物品', '衣物配饰'];
+
+            const randomType = types[Math.floor(Math.random() * types.length)];
+            const randomColor = colors[Math.floor(Math.random() * colors.length)];
+            const randomCategory = categories[Math.floor(Math.random() * categories.length)];
+
+            return {
+                type: randomType,
+                color: randomColor,
+                category: randomCategory,
+                confidence: Math.floor(Math.random() * 20) + 80,
+                features: [randomColor, randomType, '日常用品']
+            };
+        }
+
+        async function showRecognitionResult(result) {
+            window._lastRecognitionResult = result;
+            document.getElementById('itemTags').innerHTML = result.features.map(f =>
+                `<span class="px-3 py-1 bg-primary/10 text-primary text-sm rounded-full font-medium">${f}</span>`
+            ).join('');
+
+            document.getElementById('itemType').textContent = result.category;
+            document.getElementById('typeConfidence').textContent = result.confidence + '%';
+            document.getElementById('itemColor').textContent = result.color;
+
+            const colorMap = {
+                '黑色': '#1a1a1a', '白色': '#ffffff', '蓝色': '#3B82F6',
+                '红色': '#EF4444', '棕色': '#92400E', '银色': '#94A3B8'
+            };
+            document.getElementById('colorPreview').style.backgroundColor = colorMap[result.color] || '#666';
+            document.getElementById('itemFeatures').textContent = result.features.join('、');
+
+            const matches = await DB.matchByFeatures({
+                type: 'lost',
+                color: result.color,
+                category: result.category
+            });
+
+            document.getElementById('matchCount').textContent = `找到 ${matches.length} 条匹配`;
+
+            document.getElementById('matchResults').innerHTML = matches.slice(0, 5).map(item => `
+                <div class="flex items-center gap-3 p-2.5 bg-white rounded-lg border border-slate-200 hover:border-primary/50 cursor-pointer transition-colors" onclick="showItemDetail(${item.id})">
+                    ${itemImgHtml(item, "w-12 h-12 rounded-lg object-cover")}
+                    <div class="flex-1 min-w-0">
+                        <div class="font-medium text-sm text-slate-800 truncate">${item.title}</div>
+                        <div class="text-xs text-slate-500">${item.location}</div>
+                    </div>
+                    <div class="text-xs text-secondary font-medium">${item.similarity}%匹配</div>
+                </div>
+            `).join('');
+
+            document.getElementById('matchResultGrid').innerHTML = matches.map(item => createItemCard(item)).join('');
+        }
+
+        function useCamera() {
+            alert('相机功能需要在HTTPS环境下调用摄像头API，演示模式请上传图片');
+        }
+
+        document.addEventListener('DOMContentLoaded', async function () {
+            const ok = await requireAuth();
+            if (!ok) return;
+            initUploadZone();
+            window.refreshAfterItemChange = async function () {
+                if (window._lastRecognitionResult) await showRecognitionResult(window._lastRecognitionResult);
+            };
+        });
+    </script>
+</body>
+</html>

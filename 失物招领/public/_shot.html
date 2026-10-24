@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><title>shot</title></head>
+<body>
+<script>
+(function () {
+  var to = new URLSearchParams(location.search).get('to') || '/';
+  try {
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/auth/login', false);
+    xhr.setRequestHeader('Content-Type', 'application/json');
+    xhr.send(JSON.stringify({ username: 'demo', password: '123456' }));
+    var d = JSON.parse(xhr.responseText);
+    if (d && d.token) {
+      localStorage.setItem('xunwu_token', d.token);
+    }
+  } catch (e) {
+    document.body.innerHTML = 'LOGIN FAILED';
+    return;
+  }
+  location.href = to;
+})();
+</script>
+</body>
+</html>

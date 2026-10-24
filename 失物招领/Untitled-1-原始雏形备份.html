@@ -1,0 +1,1790 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>寻物智联 - 智能失物招领平台</title>
+    <!-- 引入优美字体 -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#3B82F6',
+                        secondary: '#10B981',
+                        accent: '#F59E0B',
+                        dark: '#1E293B',
+                        light: '#F8FAFC'
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'Noto Sans SC', 'system-ui', 'sans-serif'],
+                        display: ['Inter', 'Noto Sans SC', 'sans-serif']
+                    }
+                }
+            }
+        }
+    </script>
+    <style type="text/tailwindcss">
+        @layer utilities {
+            .content-auto {
+                content-visibility: auto;
+            }
+            .glass {
+                background: rgba(255, 255, 255, 0.8);
+                backdrop-filter: blur(12px);
+                -webkit-backdrop-filter: blur(12px);
+            }
+            .glass-dark {
+                background: rgba(255, 255, 255, 0.1);
+                backdrop-filter: blur(16px);
+                -webkit-backdrop-filter: blur(16px);
+                border: 1px solid rgba(255, 255, 255, 0.2);
+            }
+            .text-gradient {
+                background: linear-gradient(135deg, #3B82F6, #10B981);
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+                background-clip: text;
+            }
+            .card-hover {
+                transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            }
+            .card-hover:hover {
+                transform: translateY(-6px);
+                box-shadow: 0 20px 40px -12px rgba(0, 0, 0, 0.15);
+            }
+            .upload-zone {
+                border: 2px dashed #CBD5E1;
+                transition: all 0.3s ease;
+            }
+            .upload-zone:hover, .upload-zone.dragover {
+                border-color: #3B82F6;
+                background-color: rgba(59, 130, 246, 0.05);
+            }
+            .fade-in {
+                animation: fadeIn 0.5s ease-in-out;
+            }
+            @keyframes fadeIn {
+                from { opacity: 0; transform: translateY(10px); }
+                to { opacity: 1; transform: translateY(0); }
+            }
+            .slide-up {
+                animation: slideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+            }
+            @keyframes slideUp {
+                from { opacity: 0; transform: translateY(30px); }
+                to { opacity: 1; transform: translateY(0); }
+            }
+            .pulse-ring {
+                animation: pulse-ring 1.5s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+            }
+            @keyframes pulse-ring {
+                0% { transform: scale(0.8); opacity: 1; }
+                80%, 100% { transform: scale(1.3); opacity: 0; }
+            }
+            /* 头像样式 */
+            .avatar-img {
+                object-fit: cover;
+                width: 100%;
+                height: 100%;
+                border-radius: 50%;
+            }
+            .avatar-upload:hover .avatar-overlay {
+                opacity: 1;
+            }
+            .avatar-overlay {
+                position: absolute;
+                inset: 0;
+                background: rgba(0,0,0,0.5);
+                border-radius: 50%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                opacity: 0;
+                transition: opacity 0.3s;
+                cursor: pointer;
+            }
+            /* 优化字体排版 */
+            body {
+                -webkit-font-smoothing: antialiased;
+                -moz-osx-font-smoothing: grayscale;
+                letter-spacing: 0.01em;
+            }
+            h1, h2, h3, h4 {
+                letter-spacing: -0.02em;
+            }
+            /* 输入框自动填充背景修复 */
+            input:-webkit-autofill {
+                -webkit-box-shadow: 0 0 0 1000px white inset;
+                -webkit-text-fill-color: #1e293b;
+            }
+            .auth-input:-webkit-autofill {
+                -webkit-box-shadow: 0 0 0 1000px rgba(255,255,255,0.1) inset;
+                -webkit-text-fill-color: white;
+            }
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 font-sans min-h-screen flex flex-col">
+
+    <!-- ==================== 登录/注册入口页 ==================== -->
+    <div id="authPage" class="fixed inset-0 z-[100] bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 flex items-center justify-center p-4">
+        <!-- 背景装饰 -->
+        <div class="absolute inset-0 overflow-hidden pointer-events-none">
+            <div class="absolute top-20 -left-20 w-96 h-96 bg-primary rounded-full filter blur-3xl opacity-20"></div>
+            <div class="absolute bottom-20 -right-20 w-96 h-96 bg-secondary rounded-full filter blur-3xl opacity-20"></div>
+            <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-accent rounded-full filter blur-3xl opacity-10"></div>
+        </div>
+
+        <div class="relative w-full max-w-md">
+            <!-- Logo区域 -->
+            <div class="text-center mb-8 slide-up">
+                <div class="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-primary to-secondary mb-4 shadow-2xl shadow-primary/30">
+                    <i class="fa fa-search text-white text-2xl"></i>
+                </div>
+                <h1 class="text-3xl font-bold text-white font-display mb-2">寻物智联</h1>
+                <p class="text-slate-400">让遗失的物品，找到回家的路</p>
+            </div>
+
+            <!-- 登录注册卡片 -->
+            <div class="glass-dark rounded-3xl p-8 shadow-2xl slide-up" style="animation-delay: 0.1s">
+                <!-- 切换标签 -->
+                <div class="flex bg-white/10 rounded-xl p-1 mb-8">
+                    <button id="loginTab" onclick="switchAuthTab('login')" class="flex-1 py-2.5 rounded-lg font-medium text-white bg-white/20 transition-all">
+                        登录
+                    </button>
+                    <button id="registerTab" onclick="switchAuthTab('register')" class="flex-1 py-2.5 rounded-lg font-medium text-slate-400 hover:text-white transition-all">
+                        注册
+                    </button>
+                </div>
+
+                <!-- 登录表单 -->
+                <form id="loginForm" class="space-y-5">
+                    <div>
+                        <label class="block text-sm font-medium text-slate-300 mb-2">用户名 / 手机号</label>
+                        <div class="relative">
+                            <i class="fa fa-user absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"></i>
+                            <input type="text" id="loginUsername" placeholder="请输入用户名或手机号" 
+                                class="auth-input w-full pl-11 pr-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-slate-300 mb-2">密码</label>
+                        <div class="relative">
+                            <i class="fa fa-lock absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"></i>
+                            <input type="password" id="loginPassword" placeholder="请输入密码" 
+                                class="auth-input w-full pl-11 pr-11 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all">
+                            <button type="button" onclick="togglePassword('loginPassword', this)" class="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white transition-colors">
+                                <i class="fa fa-eye-slash"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="flex items-center justify-between text-sm">
+                        <label class="flex items-center gap-2 text-slate-400 cursor-pointer">
+                            <input type="checkbox" class="rounded border-white/30 bg-white/10 text-primary focus:ring-primary/50">
+                            <span>记住我</span>
+                        </label>
+                        <a href="#" class="text-primary hover:text-primary/80 transition-colors">忘记密码？</a>
+                    </div>
+
+                    <div id="loginError" class="hidden text-red-400 text-sm text-center py-2 bg-red-500/10 rounded-lg"></div>
+
+                    <button type="submit" class="w-full py-3.5 bg-gradient-to-r from-primary to-secondary text-white rounded-xl font-semibold hover:shadow-lg hover:shadow-primary/30 transition-all transform hover:-translate-y-0.5">
+                        登录
+                    </button>
+
+                    <p class="text-center text-sm text-slate-500">
+                        还没有账号？
+                        <button type="button" onclick="switchAuthTab('register')" class="text-primary hover:underline font-medium">立即注册</button>
+                    </p>
+                </form>
+
+                <!-- 注册表单 -->
+                <form id="registerForm" class="space-y-4 hidden">
+                    <div>
+                        <label class="block text-sm font-medium text-slate-300 mb-2">用户名</label>
+                        <div class="relative">
+                            <i class="fa fa-user absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"></i>
+                            <input type="text" id="regUsername" placeholder="3-20位字符" 
+                                class="auth-input w-full pl-11 pr-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-slate-300 mb-2">手机号</label>
+                        <div class="relative">
+                            <i class="fa fa-mobile absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 text-lg"></i>
+                            <input type="tel" id="regPhone" placeholder="请输入11位手机号" 
+                                class="auth-input w-full pl-11 pr-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-slate-300 mb-2">密码</label>
+                        <div class="relative">
+                            <i class="fa fa-lock absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"></i>
+                            <input type="password" id="regPassword" placeholder="至少6位字符" 
+                                class="auth-input w-full pl-11 pr-11 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all">
+                            <button type="button" onclick="togglePassword('regPassword', this)" class="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white transition-colors">
+                                <i class="fa fa-eye-slash"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-slate-300 mb-2">确认密码</label>
+                        <div class="relative">
+                            <i class="fa fa-lock absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"></i>
+                            <input type="password" id="regConfirmPassword" placeholder="再次输入密码" 
+                                class="auth-input w-full pl-11 pr-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all">
+                        </div>
+                    </div>
+
+                    <div id="registerError" class="hidden text-red-400 text-sm text-center py-2 bg-red-500/10 rounded-lg"></div>
+                    <div id="registerSuccess" class="hidden text-green-400 text-sm text-center py-2 bg-green-500/10 rounded-lg"></div>
+
+                    <button type="submit" class="w-full py-3.5 bg-gradient-to-r from-primary to-secondary text-white rounded-xl font-semibold hover:shadow-lg hover:shadow-primary/30 transition-all transform hover:-translate-y-0.5 mt-2">
+                        注册账号
+                    </button>
+
+                    <p class="text-center text-sm text-slate-500">
+                        已有账号？
+                        <button type="button" onclick="switchAuthTab('login')" class="text-primary hover:underline font-medium">立即登录</button>
+                    </p>
+                </form>
+            </div>
+
+            <!-- 底部说明 -->
+            <p class="text-center text-slate-500 text-xs mt-8">
+                登录即表示同意 <a href="#" class="text-slate-400 hover:text-white">用户协议</a> 和 <a href="#" class="text-slate-400 hover:text-white">隐私政策</a>
+            </p>
+        </div>
+    </div>
+
+    <!-- ==================== 主网站内容 ==================== -->
+    <div id="mainContent" class="hidden">
+        <!-- 导航栏 -->
+        <nav class="fixed top-0 left-0 right-0 z-50 glass border-b border-slate-200/50">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="flex justify-between items-center h-16">
+                    <div class="flex items-center space-x-2">
+                        <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-secondary flex items-center justify-center">
+                            <i class="fa fa-search text-white text-lg"></i>
+                        </div>
+                        <span class="text-xl font-bold text-gradient font-display">寻物智联</span>
+                    </div>
+                    
+                    <div class="hidden md:flex items-center space-x-8">
+                        <a href="#home" class="nav-link text-slate-600 hover:text-primary font-medium transition-colors">首页</a>
+                        <a href="#lost" class="nav-link text-slate-600 hover:text-primary font-medium transition-colors">失物列表</a>
+                        <a href="#found" class="nav-link text-slate-600 hover:text-primary font-medium transition-colors">招领列表</a>
+                        <a href="#recognize" class="nav-link text-slate-600 hover:text-primary font-medium transition-colors">智能识别</a>
+                        <a href="#publish" class="nav-link text-slate-600 hover:text-primary font-medium transition-colors">发布信息</a>
+                    </div>
+                    
+                    <div class="flex items-center space-x-4">
+                        <!-- 用户区域（登录后显示） -->
+                        <div id="userArea" class="hidden flex items-center gap-3">
+                            <div class="text-right hidden sm:block">
+                                <div class="text-sm font-medium text-slate-700" id="navUsername">用户</div>
+                                <div class="text-xs text-slate-500">已登录</div>
+                            </div>
+                            <div class="relative">
+                                <button onclick="toggleUserMenu()" class="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-white font-medium overflow-hidden">
+                                    <span id="userAvatar">用</span>
+                                </button>
+                                <div id="userMenu" class="hidden absolute right-0 top-12 w-40 bg-white rounded-xl shadow-xl border border-slate-200 py-2">
+                                    <button onclick="openProfileModal()" class="w-full text-left px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 hover:text-primary transition-colors">
+                                        <i class="fa fa-user-o mr-2"></i>个人中心
+                                    </button>
+                                    <button onclick="openProfileModal()" class="w-full text-left px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 hover:text-primary transition-colors">
+                                        <i class="fa fa-list-ul mr-2"></i>我的发布
+                                    </button>
+                                    <hr class="my-2 border-slate-100">
+                                    <button onclick="logout()" class="w-full text-left px-4 py-2 text-sm text-red-500 hover:bg-red-50 transition-colors">
+                                        <i class="fa fa-sign-out mr-2"></i>退出登录
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <button class="md:hidden text-slate-600 text-xl" id="mobileMenuBtn">
+                            <i class="fa fa-bars"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 移动端菜单 -->
+            <div id="mobileMenu" class="hidden md:hidden bg-white border-t border-slate-200">
+                <div class="px-4 py-3 space-y-2">
+                    <a href="#home" class="block py-2 text-slate-600 hover:text-primary">首页</a>
+                    <a href="#lost" class="block py-2 text-slate-600 hover:text-primary">失物列表</a>
+                    <a href="#found" class="block py-2 text-slate-600 hover:text-primary">招领列表</a>
+                    <a href="#recognize" class="block py-2 text-slate-600 hover:text-primary">智能识别</a>
+                    <a href="#publish" class="block py-2 text-slate-600 hover:text-primary">发布信息</a>
+                </div>
+            </div>
+        </nav>
+
+        <!-- 主内容区 -->
+        <main class="flex-grow pt-16">
+            <!-- 英雄区域 -->
+            <section id="home" class="relative overflow-hidden bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white py-20 lg:py-28">
+                <div class="absolute inset-0 opacity-20">
+                    <div class="absolute top-20 left-10 w-72 h-72 bg-primary rounded-full filter blur-3xl"></div>
+                    <div class="absolute bottom-10 right-10 w-96 h-96 bg-secondary rounded-full filter blur-3xl"></div>
+                </div>
+                
+                <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
+                    <div class="text-center max-w-3xl mx-auto">
+                        <div class="inline-flex items-center px-4 py-2 rounded-full bg-white/10 backdrop-blur-sm border border-white/20 mb-6">
+                            <span class="w-2 h-2 bg-secondary rounded-full mr-2 pulse-ring"></span>
+                            <span class="text-sm text-slate-300">AI智能图像识别 · 快速匹配失物</span>
+                        </div>
+                        
+                        <h1 class="text-4xl md:text-5xl lg:text-6xl font-bold mb-6 leading-tight font-display">
+                            让遗失的物品<br>
+                            <span class="text-gradient">找到回家的路</span>
+                        </h1>
+                        
+                        <p class="text-lg text-slate-300 mb-10 max-w-2xl mx-auto leading-relaxed">
+                            基于人工智能图像识别技术，上传物品照片即可智能匹配，大幅提升失物找回概率，让每一件失物都能物归原主。
+                        </p>
+                        
+                        <!-- 搜索框 -->
+                        <div class="bg-white rounded-2xl p-2 shadow-2xl shadow-black/20 max-w-2xl mx-auto">
+                            <div class="flex flex-col sm:flex-row gap-2">
+                                <div class="flex-1 relative">
+                                    <i class="fa fa-search absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"></i>
+                                    <input type="text" id="searchInput" placeholder="搜索物品名称、地点、描述..." 
+                                        class="w-full pl-11 pr-4 py-3 rounded-xl bg-slate-50 text-slate-800 focus:outline-none focus:ring-2 focus:ring-primary/30">
+                                </div>
+                                <button onclick="scrollToRecognize()" class="px-6 py-3 bg-gradient-to-r from-primary to-secondary text-white rounded-xl font-medium hover:shadow-lg hover:shadow-primary/30 transition-all flex items-center justify-center gap-2">
+                                    <i class="fa fa-camera"></i>
+                                    <span>以图搜物</span>
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <!-- 统计数据 -->
+                        <div class="grid grid-cols-3 gap-6 mt-12 max-w-lg mx-auto">
+                            <div class="text-center">
+                                <div class="text-3xl font-bold text-white font-display" id="stat1">0</div>
+                                <div class="text-sm text-slate-400 mt-1">累计发布</div>
+                            </div>
+                            <div class="text-center">
+                                <div class="text-3xl font-bold text-secondary font-display" id="stat2">0</div>
+                                <div class="text-sm text-slate-400 mt-1">成功找回</div>
+                            </div>
+                            <div class="text-center">
+                                <div class="text-3xl font-bold text-accent font-display" id="stat3">0%</div>
+                                <div class="text-sm text-slate-400 mt-1">找回率</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 智能识别区域 -->
+            <section id="recognize" class="py-20 bg-white">
+                <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                    <div class="text-center mb-12">
+                        <h2 class="text-3xl font-bold text-slate-800 mb-4 font-display">智能图像识别</h2>
+                        <p class="text-slate-500 max-w-2xl mx-auto leading-relaxed">上传物品照片，AI将自动识别物品类型、颜色、特征，并在数据库中智能匹配相似物品</p>
+                    </div>
+                    
+                    <div class="grid lg:grid-cols-2 gap-10 items-start">
+                        <!-- 上传区域 -->
+                        <div class="bg-slate-50 rounded-2xl p-6 border border-slate-200">
+                            <h3 class="text-lg font-semibold mb-4 flex items-center gap-2">
+                                <i class="fa fa-upload text-primary"></i>
+                                上传物品图片
+                            </h3>
+                            
+                            <div id="uploadZone" class="upload-zone rounded-xl p-8 text-center cursor-pointer mb-6">
+                                <input type="file" id="imageInput" accept="image/*" class="hidden">
+                                
+                                <div id="uploadPlaceholder">
+                                    <div class="w-16 h-16 mx-auto mb-4 rounded-full bg-primary/10 flex items-center justify-center">
+                                        <i class="fa fa-cloud-upload text-2xl text-primary"></i>
+                                    </div>
+                                    <p class="text-slate-600 font-medium mb-1">点击或拖拽图片到此处</p>
+                                    <p class="text-sm text-slate-400">支持 JPG、PNG 格式，最大 5MB</p>
+                                </div>
+                                
+                                <div id="previewContainer" class="hidden relative">
+                                    <img id="imagePreview" class="max-h-64 mx-auto rounded-lg" alt="预览图片">
+                                    <button onclick="clearImage()" class="absolute top-2 right-2 w-8 h-8 bg-black/50 text-white rounded-full hover:bg-black/70 transition-colors">
+                                        <i class="fa fa-times"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <div class="flex gap-3">
+                                <button id="recognizeBtn" onclick="startRecognition()" disabled
+                                    class="flex-1 py-3 bg-primary text-white rounded-xl font-medium hover:bg-primary/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+                                    <i class="fa fa-magic"></i>
+                                    <span>开始智能识别</span>
+                                </button>
+                                <button onclick="useCamera()" class="px-4 py-3 border border-slate-300 rounded-xl hover:bg-slate-50 transition-colors">
+                                    <i class="fa fa-camera text-slate-600"></i>
+                                </button>
+                            </div>
+                            
+                            <!-- 识别进度 -->
+                            <div id="recognitionProgress" class="hidden mt-6">
+                                <div class="relative bg-slate-200 rounded-full h-2 overflow-hidden mb-3">
+                                    <div id="progressBar" class="absolute left-0 top-0 h-full bg-gradient-to-r from-primary to-secondary transition-all duration-300" style="width: 0%"></div>
+                                </div>
+                                <p id="progressText" class="text-sm text-slate-500 text-center">正在分析图像特征...</p>
+                            </div>
+                        </div>
+                        
+                        <!-- 识别结果 -->
+                        <div class="bg-slate-50 rounded-2xl p-6 border border-slate-200 min-h-[400px]">
+                            <h3 class="text-lg font-semibold mb-4 flex items-center gap-2">
+                                <i class="fa fa-list-alt text-secondary"></i>
+                                识别结果
+                            </h3>
+                            
+                            <div id="resultPlaceholder" class="flex flex-col items-center justify-center h-64 text-center">
+                                <div class="w-16 h-16 mb-4 rounded-full bg-slate-200 flex items-center justify-center">
+                                    <i class="fa fa-image text-2xl text-slate-400"></i>
+                                </div>
+                                <p class="text-slate-500">上传图片后开始识别</p>
+                                <p class="text-sm text-slate-400 mt-1">AI将自动提取物品特征</p>
+                            </div>
+                            
+                            <div id="recognitionResult" class="hidden fade-in">
+                                <!-- 物品标签 -->
+                                <div class="mb-6">
+                                    <h4 class="text-sm font-medium text-slate-500 mb-2">识别物品</h4>
+                                    <div class="flex flex-wrap gap-2" id="itemTags">
+                                        <!-- 动态生成标签 -->
+                                    </div>
+                                </div>
+                                
+                                <!-- 特征信息 -->
+                                <div class="space-y-3 mb-6">
+                                    <div class="flex items-center gap-3 p-3 bg-white rounded-lg border border-slate-200">
+                                        <div class="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
+                                            <i class="fa fa-tag text-primary"></i>
+                                        </div>
+                                        <div>
+                                            <div class="text-sm text-slate-500">物品类型</div>
+                                            <div class="font-medium" id="itemType">-</div>
+                                        </div>
+                                        <div class="ml-auto text-sm text-primary font-medium" id="typeConfidence">-</div>
+                                    </div>
+                                    
+                                    <div class="flex items-center gap-3 p-3 bg-white rounded-lg border border-slate-200">
+                                        <div class="w-10 h-10 rounded-lg bg-accent/10 flex items-center justify-center flex-shrink-0">
+                                            <i class="fa fa-paint-brush text-accent"></i>
+                                        </div>
+                                        <div>
+                                            <div class="text-sm text-slate-500">主色调</div>
+                                            <div class="font-medium" id="itemColor">-</div>
+                                        </div>
+                                        <div class="ml-auto">
+                                            <div id="colorPreview" class="w-6 h-6 rounded-full border-2 border-white shadow"></div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="flex items-center gap-3 p-3 bg-white rounded-lg border border-slate-200">
+                                        <div class="w-10 h-10 rounded-lg bg-secondary/10 flex items-center justify-center flex-shrink-0">
+                                            <i class="fa fa-cube text-secondary"></i>
+                                        </div>
+                                        <div>
+                                            <div class="text-sm text-slate-500">物品特征</div>
+                                            <div class="font-medium text-sm" id="itemFeatures">-</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <!-- 匹配结果 -->
+                                <div>
+                                    <h4 class="text-sm font-medium text-slate-500 mb-3 flex items-center justify-between">
+                                        <span>数据库匹配结果</span>
+                                        <span class="text-xs text-slate-400" id="matchCount">找到 0 条匹配</span>
+                                    </h4>
+                                    <div id="matchResults" class="space-y-2 max-h-48 overflow-y-auto">
+                                        <!-- 动态生成匹配结果 -->
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 匹配结果详情区域 -->
+            <section id="matchResultSection" class="py-16 bg-slate-50 hidden">
+                <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                    <div class="text-center mb-10">
+                        <h2 class="text-3xl font-bold text-slate-800 mb-3 font-display">智能匹配结果</h2>
+                        <p class="text-slate-500">根据图像识别特征，为你找到以下相似物品</p>
+                    </div>
+                    
+                    <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-6" id="matchResultGrid">
+                        <!-- 动态生成匹配卡片 -->
+                    </div>
+                </div>
+            </section>
+
+            <!-- 最新失物 -->
+            <section id="lost" class="py-20 bg-slate-50">
+                <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                    <div class="flex justify-between items-end mb-10">
+                        <div>
+                            <h2 class="text-3xl font-bold text-slate-800 mb-2 font-display">最新失物</h2>
+                            <p class="text-slate-500">浏览最新发布的遗失物品信息，帮助他人找回失物</p>
+                        </div>
+                        <a href="#" class="hidden sm:flex items-center gap-1 text-primary font-medium hover:underline">
+                            查看全部
+                            <i class="fa fa-angle-right"></i>
+                        </a>
+                    </div>
+                    
+                    <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-6" id="lostItemsGrid">
+                        <!-- 动态生成失物卡片 -->
+                    </div>
+                    
+                    <div class="text-center mt-10 sm:hidden">
+                        <a href="#" class="inline-flex items-center gap-1 text-primary font-medium">
+                            查看全部
+                            <i class="fa fa-angle-right"></i>
+                        </a>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 最新招领 -->
+            <section id="found" class="py-20 bg-white">
+                <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                    <div class="flex justify-between items-end mb-10">
+                        <div>
+                            <h2 class="text-3xl font-bold text-slate-800 mb-2 font-display">最新招领</h2>
+                            <p class="text-slate-500">查看好心人捡到的物品，看看有没有你丢失的东西</p>
+                        </div>
+                        <a href="#" class="hidden sm:flex items-center gap-1 text-primary font-medium hover:underline">
+                            查看全部
+                            <i class="fa fa-angle-right"></i>
+                        </a>
+                    </div>
+                    
+                    <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-6" id="foundItemsGrid">
+                        <!-- 动态生成招领卡片 -->
+                    </div>
+                    
+                    <div class="text-center mt-10 sm:hidden">
+                        <a href="#" class="inline-flex items-center gap-1 text-primary font-medium">
+                            查看全部
+                            <i class="fa fa-angle-right"></i>
+                        </a>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 发布信息 -->
+            <section id="publish" class="py-20 bg-gradient-to-br from-slate-900 to-slate-800 text-white">
+                <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                    <div class="text-center mb-12">
+                        <h2 class="text-3xl font-bold mb-4 font-display">发布信息</h2>
+                        <p class="text-slate-400 max-w-2xl mx-auto leading-relaxed">发布失物或招领信息，借助社区力量和AI智能匹配，快速找到失主或失物</p>
+                    </div>
+                    
+                    <div class="max-w-3xl mx-auto">
+                        <!-- 类型切换 -->
+                        <div class="flex justify-center mb-8">
+                            <div class="bg-white/10 backdrop-blur-sm rounded-xl p-1 inline-flex">
+                                <button id="tabLost" onclick="switchPublishTab('lost')" class="px-6 py-2.5 rounded-lg font-medium transition-all bg-white text-slate-800">
+                                    我丢失了物品
+                                </button>
+                                <button id="tabFound" onclick="switchPublishTab('found')" class="px-6 py-2.5 rounded-lg font-medium transition-all text-slate-300 hover:text-white">
+                                    我捡到了物品
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <form id="publishForm" class="bg-white/5 backdrop-blur-sm rounded-2xl p-6 lg:p-8 border border-white/10">
+                            <div class="grid md:grid-cols-2 gap-6 mb-6">
+                                <div>
+                                    <label class="block text-sm font-medium text-slate-300 mb-2">物品名称 *</label>
+                                    <input type="text" id="itemTitle" placeholder="例如：黑色钱包" 
+                                        class="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-slate-300 mb-2">物品分类 *</label>
+                                    <select id="itemCategory" class="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary">
+                                        <option value="" class="text-slate-800">请选择分类</option>
+                                        <option value="电子数码" class="text-slate-800">电子数码</option>
+                                        <option value="证件文件" class="text-slate-800">证件文件</option>
+                                        <option value="衣物配饰" class="text-slate-800">衣物配饰</option>
+                                        <option value="箱包类" class="text-slate-800">箱包类</option>
+                                        <option value="钥匙" class="text-slate-800">钥匙</option>
+                                        <option value="其他物品" class="text-slate-800">其他物品</option>
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            <div class="grid md:grid-cols-2 gap-6 mb-6">
+                                <div>
+                                    <label class="block text-sm font-medium text-slate-300 mb-2">丢失/拾取地点 *</label>
+                                    <input type="text" id="itemLocation" placeholder="例如：图书馆二楼自习室" 
+                                        class="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-slate-300 mb-2">时间 *</label>
+                                    <input type="date" id="itemDate" 
+                                        class="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary">
+                                </div>
+                            </div>
+                            
+                            <div class="mb-6">
+                                <label class="block text-sm font-medium text-slate-300 mb-2">详细描述 *</label>
+                                <textarea id="itemDesc" rows="4" placeholder="请详细描述物品特征，如颜色、品牌、特殊标记等，越详细越容易匹配..."
+                                    class="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary resize-none"></textarea>
+                            </div>
+                            
+                            <div class="grid md:grid-cols-2 gap-6 mb-8">
+                                <div>
+                                    <label class="block text-sm font-medium text-slate-300 mb-2">联系方式 *</label>
+                                    <input type="text" id="itemContact" placeholder="手机号或微信号" 
+                                        class="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-slate-300 mb-2">酬谢（选填）</label>
+                                    <input type="text" id="itemReward" placeholder="如有酬谢可在此说明" 
+                                        class="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary">
+                                </div>
+                            </div>
+                            
+                            <button type="submit" class="w-full py-4 bg-gradient-to-r from-primary to-secondary text-white rounded-xl font-semibold hover:shadow-lg hover:shadow-primary/30 transition-all">
+                                发布信息
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 功能特点 -->
+            <section class="py-20 bg-slate-50">
+                <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                    <div class="text-center mb-12">
+                        <h2 class="text-3xl font-bold text-slate-800 mb-4 font-display">为什么选择寻物智联</h2>
+                        <p class="text-slate-500 max-w-2xl mx-auto leading-relaxed">融合AI技术与社区力量，打造最高效的失物招领平台</p>
+                    </div>
+                    
+                    <div class="grid md:grid-cols-3 gap-8">
+                        <div class="bg-white rounded-2xl p-8 border border-slate-200 card-hover">
+                            <div class="w-14 h-14 mb-6 rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
+                                <i class="fa fa-eye text-2xl text-primary"></i>
+                            </div>
+                            <h3 class="text-xl font-semibold mb-3 text-slate-800 font-display">智能图像识别</h3>
+                            <p class="text-slate-500 leading-relaxed">基于深度学习的图像识别算法，自动提取物品特征，秒级匹配数据库中的相似物品。</p>
+                        </div>
+                        
+                        <div class="bg-white rounded-2xl p-8 border border-slate-200 card-hover">
+                            <div class="w-14 h-14 mb-6 rounded-2xl bg-gradient-to-br from-secondary/20 to-secondary/5 flex items-center justify-center">
+                                <i class="fa fa-map-marker text-2xl text-secondary"></i>
+                            </div>
+                            <h3 class="text-xl font-semibold mb-3 text-slate-800 font-display">地理位置匹配</h3>
+                            <p class="text-slate-500 leading-relaxed">结合丢失地点和时间进行智能推荐，优先展示附近区域的失物信息，提高找回概率。</p>
+                        </div>
+                        
+                        <div class="bg-white rounded-2xl p-8 border border-slate-200 card-hover">
+                            <div class="w-14 h-14 mb-6 rounded-2xl bg-gradient-to-br from-accent/20 to-accent/5 flex items-center justify-center">
+                                <i class="fa fa-users text-2xl text-accent"></i>
+                            </div>
+                            <h3 class="text-xl font-semibold mb-3 text-slate-800 font-display">社区互助网络</h3>
+                            <p class="text-slate-500 leading-relaxed">连接校园、社区、商圈等多个场景，汇聚好心人力量，共同构建互助友爱的社区。</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- 页脚 -->
+        <footer class="bg-slate-900 text-slate-400 py-12">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="grid md:grid-cols-4 gap-8 mb-8">
+                    <div>
+                        <div class="flex items-center space-x-2 mb-4">
+                            <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-secondary flex items-center justify-center">
+                                <i class="fa fa-search text-white"></i>
+                            </div>
+                            <span class="text-xl font-bold text-white font-display">寻物智联</span>
+                        </div>
+                        <p class="text-sm leading-relaxed">让每一件失物都能找到回家的路，用科技连接善意。</p>
+                    </div>
+                    
+                    <div>
+                        <h4 class="text-white font-semibold mb-4">快速链接</h4>
+                        <ul class="space-y-2 text-sm">
+                            <li><a href="#" class="hover:text-white transition-colors">首页</a></li>
+                            <li><a href="#" class="hover:text-white transition-colors">失物列表</a></li>
+                            <li><a href="#" class="hover:text-white transition-colors">招领列表</a></li>
+                            <li><a href="#" class="hover:text-white transition-colors">发布信息</a></li>
+                        </ul>
+                    </div>
+                    
+                    <div>
+                        <h4 class="text-white font-semibold mb-4">帮助中心</h4>
+                        <ul class="space-y-2 text-sm">
+                            <li><a href="#" class="hover:text-white transition-colors">使用指南</a></li>
+                            <li><a href="#" class="hover:text-white transition-colors">常见问题</a></li>
+                            <li><a href="#" class="hover:text-white transition-colors">联系我们</a></li>
+                            <li><a href="#" class="hover:text-white transition-colors">意见反馈</a></li>
+                        </ul>
+                    </div>
+                    
+                    <div>
+                        <h4 class="text-white font-semibold mb-4">关注我们</h4>
+                        <div class="flex gap-3 mb-4">
+                            <a href="#" class="w-10 h-10 rounded-lg bg-white/10 flex items-center justify-center hover:bg-white/20 transition-colors">
+                                <i class="fa fa-weixin"></i>
+                            </a>
+                            <a href="#" class="w-10 h-10 rounded-lg bg-white/10 flex items-center justify-center hover:bg-white/20 transition-colors">
+                                <i class="fa fa-weibo"></i>
+                            </a>
+                            <a href="#" class="w-10 h-10 rounded-lg bg-white/10 flex items-center justify-center hover:bg-white/20 transition-colors">
+                                <i class="fa fa-qq"></i>
+                            </a>
+                        </div>
+                        <p class="text-sm">客服热线：400-XXX-XXXX</p>
+                    </div>
+                </div>
+                
+                <div class="border-t border-white/10 pt-8 flex flex-col md:flex-row justify-between items-center text-sm">
+                    <p>© 2025 寻物智联. 保留所有权利.</p>
+                    <div class="flex gap-6 mt-4 md:mt-0">
+                        <a href="#" class="hover:text-white transition-colors">隐私政策</a>
+                        <a href="#" class="hover:text-white transition-colors">用户协议</a>
+                        <a href="#" class="hover:text-white transition-colors">网站地图</a>
+                    </div>
+                </div>
+            </div>
+        </footer>
+
+        <!-- 物品详情弹窗 -->
+        <div id="itemModal" class="fixed inset-0 z-50 hidden items-center justify-center p-4">
+            <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" onclick="closeModal()"></div>
+            <div class="relative bg-white rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto fade-in">
+                <button onclick="closeModal()" class="absolute top-4 right-4 w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center hover:bg-slate-200 transition-colors z-10">
+                    <i class="fa fa-times text-slate-600"></i>
+                </button>
+                
+                <div id="modalContent">
+                    <!-- 动态填充 -->
+                </div>
+            </div>
+        </div>
+
+        <!-- 个人中心弹窗 -->
+        <div id="profileModal" class="fixed inset-0 z-50 hidden items-center justify-center p-4">
+            <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" onclick="closeProfileModal()"></div>
+            <div class="relative bg-white rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto fade-in">
+                <button onclick="closeProfileModal()" class="absolute top-4 right-4 w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center hover:bg-slate-200 transition-colors z-10">
+                    <i class="fa fa-times text-slate-600"></i>
+                </button>
+                
+                <div class="p-6">
+                    <!-- 头像区域 -->
+                    <div class="text-center mb-6">
+                        <div class="relative inline-block avatar-upload">
+                            <div id="profileAvatar" class="w-24 h-24 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-white text-3xl font-bold mx-auto overflow-hidden">
+                                用
+                            </div>
+                            <div class="avatar-overlay" onclick="document.getElementById('avatarInput').click()">
+                                <i class="fa fa-camera text-white text-xl"></i>
+                            </div>
+                            <input type="file" id="avatarInput" accept="image/*" class="hidden" onchange="handleAvatarUpload(event)">
+                        </div>
+                        <h3 class="text-xl font-bold text-slate-800 mt-4 font-display" id="profileUsername">用户名</h3>
+                        <p class="text-sm text-slate-500 mt-1" id="profilePhone">手机号</p>
+                    </div>
+
+                    <!-- 个性签名 -->
+                    <div class="mb-6">
+                        <label class="block text-sm font-medium text-slate-700 mb-2">个性签名</label>
+                        <div class="relative">
+                            <textarea id="profileSignature" rows="2" placeholder="写下你的个性签名..."
+                                class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary resize-none text-sm"></textarea>
+                        </div>
+                        <button onclick="saveSignature()" class="mt-2 px-4 py-2 text-sm bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors">
+                            保存签名
+                        </button>
+                    </div>
+
+                    <!-- 账号信息 -->
+                    <div class="mb-6">
+                        <h4 class="text-sm font-medium text-slate-700 mb-3">账号信息</h4>
+                        <div class="space-y-2">
+                            <div class="flex justify-between items-center p-3 bg-slate-50 rounded-lg">
+                                <span class="text-sm text-slate-500">注册时间</span>
+                                <span class="text-sm text-slate-700" id="profileCreateTime">-</span>
+                            </div>
+                            <div class="flex justify-between items-center p-3 bg-slate-50 rounded-lg">
+                                <span class="text-sm text-slate-500">发布总数</span>
+                                <span class="text-sm text-slate-700" id="profilePublishCount">0</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 我的发布 -->
+                    <div>
+                        <h4 class="text-sm font-medium text-slate-700 mb-3">我的发布</h4>
+                        <div id="myPublishList" class="space-y-2 max-h-64 overflow-y-auto">
+                            <!-- 动态生成 -->
+                        </div>
+                        <div id="myPublishEmpty" class="text-center py-6 text-slate-400 text-sm">
+                            暂无发布内容
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ==================== 用户账号系统 ====================
+        const USER_DB_KEY = 'xunwu_users';
+        const CURRENT_USER_KEY = 'xunwu_current_user';
+
+        const UserDB = {
+            // 初始化用户库
+            init() {
+                if (!localStorage.getItem(USER_DB_KEY)) {
+                    // 预置测试账号
+                    const demoUsers = [
+                        { 
+                            username: 'demo', 
+                            password: '123456', 
+                            phone: '13800138000', 
+                            createdAt: Date.now(),
+                            avatar: '',
+                            signature: '帮助他人，快乐自己～'
+                        }
+                    ];
+                    localStorage.setItem(USER_DB_KEY, JSON.stringify(demoUsers));
+                } else {
+                    // 兼容旧数据，新增字段
+                    const users = this.getAll();
+                    let updated = false;
+                    users.forEach(user => {
+                        if (user.avatar === undefined) {
+                            user.avatar = '';
+                            updated = true;
+                        }
+                        if (user.signature === undefined) {
+                            user.signature = '';
+                            updated = true;
+                        }
+                    });
+                    if (updated) {
+                        localStorage.setItem(USER_DB_KEY, JSON.stringify(users));
+                    }
+                }
+            },
+
+            // 获取所有用户
+            getAll() {
+                return JSON.parse(localStorage.getItem(USER_DB_KEY)) || [];
+            },
+
+            // 注册
+            register({ username, password, phone }) {
+                const users = this.getAll();
+                
+                if (users.find(u => u.username === username)) {
+                    return { success: false, message: '用户名已被注册' };
+                }
+                
+                if (users.find(u => u.phone === phone)) {
+                    return { success: false, message: '手机号已被注册' };
+                }
+
+                const newUser = {
+                    username,
+                    password,
+                    phone,
+                    createdAt: Date.now(),
+                    avatar: '',
+                    signature: ''
+                };
+                
+                users.push(newUser);
+                localStorage.setItem(USER_DB_KEY, JSON.stringify(users));
+                return { success: true, message: '注册成功' };
+            },
+
+            // 登录
+            login(username, password) {
+                const users = this.getAll();
+                const user = users.find(u => 
+                    (u.username === username || u.phone === username) && u.password === password
+                );
+                
+                if (user) {
+                    localStorage.setItem(CURRENT_USER_KEY, JSON.stringify({
+                        username: user.username,
+                        phone: user.phone,
+                        loginTime: Date.now(),
+                        avatar: user.avatar || '',
+                        signature: user.signature || ''
+                    }));
+                    return { success: true };
+                }
+                return { success: false, message: '用户名或密码错误' };
+            },
+
+            // 更新个人资料
+            updateProfile(data) {
+                const users = this.getAll();
+                const current = this.getCurrent();
+                if (!current) return false;
+                
+                const index = users.findIndex(u => u.username === current.username);
+                if (index === -1) return false;
+                
+                users[index] = { ...users[index], ...data };
+                localStorage.setItem(USER_DB_KEY, JSON.stringify(users));
+                
+                // 更新当前登录状态
+                const updatedUser = users[index];
+                localStorage.setItem(CURRENT_USER_KEY, JSON.stringify({
+                    username: updatedUser.username,
+                    phone: updatedUser.phone,
+                    loginTime: Date.now(),
+                    avatar: updatedUser.avatar,
+                    signature: updatedUser.signature
+                }));
+                
+                return true;
+            },
+
+            // 退出登录
+            logout() {
+                localStorage.removeItem(CURRENT_USER_KEY);
+            },
+
+            // 获取当前登录用户
+            getCurrent() {
+                const userStr = localStorage.getItem(CURRENT_USER_KEY);
+                return userStr ? JSON.parse(userStr) : null;
+            },
+
+            // 检查是否登录
+            isLoggedIn() {
+                return this.getCurrent() !== null;
+            }
+        };
+
+        // ==================== 登录注册交互 ====================
+        let currentAuthTab = 'login';
+
+        function switchAuthTab(tab) {
+            currentAuthTab = tab;
+            const loginTab = document.getElementById('loginTab');
+            const registerTab = document.getElementById('registerTab');
+            const loginForm = document.getElementById('loginForm');
+            const registerForm = document.getElementById('registerForm');
+            const loginError = document.getElementById('loginError');
+            const registerError = document.getElementById('registerError');
+            const registerSuccess = document.getElementById('registerSuccess');
+
+            loginError.classList.add('hidden');
+            registerError.classList.add('hidden');
+            registerSuccess.classList.add('hidden');
+
+            if (tab === 'login') {
+                loginTab.classList.add('bg-white/20', 'text-white');
+                loginTab.classList.remove('text-slate-400');
+                registerTab.classList.remove('bg-white/20', 'text-white');
+                registerTab.classList.add('text-slate-400');
+                loginForm.classList.remove('hidden');
+                registerForm.classList.add('hidden');
+            } else {
+                registerTab.classList.add('bg-white/20', 'text-white');
+                registerTab.classList.remove('text-slate-400');
+                loginTab.classList.remove('bg-white/20', 'text-white');
+                loginTab.classList.add('text-slate-400');
+                registerForm.classList.remove('hidden');
+                loginForm.classList.add('hidden');
+            }
+        }
+
+        // 密码显隐切换
+        function togglePassword(inputId, btn) {
+            const input = document.getElementById(inputId);
+            const icon = btn.querySelector('i');
+            
+            if (input.type === 'password') {
+                input.type = 'text';
+                icon.classList.remove('fa-eye-slash');
+                icon.classList.add('fa-eye');
+            } else {
+                input.type = 'password';
+                icon.classList.remove('fa-eye');
+                icon.classList.add('fa-eye-slash');
+            }
+        }
+
+        // 登录表单提交
+        document.getElementById('loginForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const username = document.getElementById('loginUsername').value.trim();
+            const password = document.getElementById('loginPassword').value;
+            const errorEl = document.getElementById('loginError');
+
+            if (!username || !password) {
+                showError(errorEl, '请输入用户名和密码');
+                return;
+            }
+
+            const result = UserDB.login(username, password);
+            
+            if (result.success) {
+                enterMainPage();
+            } else {
+                showError(errorEl, result.message);
+            }
+        });
+
+        // 注册表单提交
+        document.getElementById('registerForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const username = document.getElementById('regUsername').value.trim();
+            const phone = document.getElementById('regPhone').value.trim();
+            const password = document.getElementById('regPassword').value;
+            const confirmPassword = document.getElementById('regConfirmPassword').value;
+            const errorEl = document.getElementById('registerError');
+            const successEl = document.getElementById('registerSuccess');
+
+            if (username.length < 3 || username.length > 20) {
+                showError(errorEl, '用户名长度需在3-20位之间');
+                return;
+            }
+            if (!/^1[3-9]\d{9}$/.test(phone)) {
+                showError(errorEl, '请输入正确的手机号');
+                return;
+            }
+            if (password.length < 6) {
+                showError(errorEl, '密码至少6位字符');
+                return;
+            }
+            if (password !== confirmPassword) {
+                showError(errorEl, '两次输入的密码不一致');
+                return;
+            }
+
+            const result = UserDB.register({ username, password, phone });
+            
+            if (result.success) {
+                successEl.textContent = result.message + '，即将跳转到登录...';
+                successEl.classList.remove('hidden');
+                errorEl.classList.add('hidden');
+                
+                setTimeout(() => {
+                    switchAuthTab('login');
+                    document.getElementById('loginUsername').value = username;
+                }, 1500);
+            } else {
+                showError(errorEl, result.message);
+            }
+        });
+
+        function showError(element, message) {
+            element.textContent = message;
+            element.classList.remove('hidden');
+        }
+
+        // 进入主页面
+        function enterMainPage() {
+            const authPage = document.getElementById('authPage');
+            const mainContent = document.getElementById('mainContent');
+            const user = UserDB.getCurrent();
+
+            // 更新导航栏用户信息
+            document.getElementById('navUsername').textContent = user.username;
+            updateNavAvatar(user);
+            document.getElementById('userArea').classList.remove('hidden');
+
+            // 过渡动画
+            authPage.style.opacity = '0';
+            authPage.style.transform = 'scale(1.05)';
+            authPage.style.transition = 'all 0.5s ease';
+            
+            setTimeout(() => {
+                authPage.classList.add('hidden');
+                mainContent.classList.remove('hidden');
+                document.body.style.overflow = '';
+                initMainPage();
+            }, 500);
+        }
+
+        // 更新导航栏头像
+        function updateNavAvatar(user) {
+            const avatarEl = document.getElementById('userAvatar');
+            if (user.avatar) {
+                avatarEl.innerHTML = `<img src="${user.avatar}" class="avatar-img" alt="头像">`;
+            } else {
+                avatarEl.innerHTML = user.username.charAt(0).toUpperCase();
+            }
+        }
+
+        // 退出登录
+        function logout() {
+            UserDB.logout();
+            toggleUserMenu();
+            
+            document.getElementById('mainContent').classList.add('hidden');
+            document.getElementById('authPage').classList.remove('hidden');
+            document.getElementById('authPage').style.opacity = '1';
+            document.getElementById('authPage').style.transform = 'scale(1)';
+            
+            document.getElementById('loginForm').reset();
+            document.getElementById('registerForm').reset();
+            switchAuthTab('login');
+        }
+
+        // 用户下拉菜单
+        function toggleUserMenu() {
+            document.getElementById('userMenu').classList.toggle('hidden');
+        }
+
+        // 点击外部关闭用户菜单
+        document.addEventListener('click', function(e) {
+            const userMenu = document.getElementById('userMenu');
+            const avatarBtn = document.querySelector('#userArea button');
+            if (!userMenu.contains(e.target) && !avatarBtn.contains(e.target)) {
+                userMenu.classList.add('hidden');
+            }
+        });
+
+        // ==================== 个人中心功能 ====================
+        function openProfileModal() {
+            toggleUserMenu();
+            const user = UserDB.getCurrent();
+            if (!user) return;
+            
+            // 填充基础信息
+            document.getElementById('profileUsername').textContent = user.username;
+            document.getElementById('profilePhone').textContent = user.phone.replace(/(\d{3})\d{4}(\d{4})/, '$1****$2');
+            document.getElementById('profileSignature').value = user.signature || '';
+            
+            // 头像
+            const avatarEl = document.getElementById('profileAvatar');
+            if (user.avatar) {
+                avatarEl.innerHTML = `<img src="${user.avatar}" class="avatar-img" alt="头像">`;
+            } else {
+                avatarEl.innerHTML = user.username.charAt(0).toUpperCase();
+            }
+            
+            // 注册时间
+            const users = UserDB.getAll();
+            const userInfo = users.find(u => u.username === user.username);
+            if (userInfo) {
+                const date = new Date(userInfo.createdAt);
+                document.getElementById('profileCreateTime').textContent = date.toLocaleDateString();
+            }
+            
+            // 我的发布列表
+            renderMyPublish();
+            
+            document.getElementById('profileModal').classList.remove('hidden');
+            document.getElementById('profileModal').classList.add('flex');
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeProfileModal() {
+            document.getElementById('profileModal').classList.add('hidden');
+            document.getElementById('profileModal').classList.remove('flex');
+            document.body.style.overflow = '';
+        }
+
+        // 处理头像上传
+        function handleAvatarUpload(event) {
+            const file = event.target.files[0];
+            if (!file || !file.type.startsWith('image/')) return;
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const avatarBase64 = e.target.result;
+                
+                // 更新数据库
+                UserDB.updateProfile({ avatar: avatarBase64 });
+                
+                // 更新个人中心头像
+                const avatarEl = document.getElementById('profileAvatar');
+                avatarEl.innerHTML = `<img src="${avatarBase64}" class="avatar-img" alt="头像">`;
+                
+                // 更新导航栏头像
+                updateNavAvatar(UserDB.getCurrent());
+            };
+            reader.readAsDataURL(file);
+        }
+
+        // 保存个性签名
+        function saveSignature() {
+            const signature = document.getElementById('profileSignature').value.trim();
+            UserDB.updateProfile({ signature });
+            alert('个性签名保存成功！');
+        }
+
+        // 渲染我的发布
+        function renderMyPublish() {
+            const user = UserDB.getCurrent();
+            if (!user) return;
+            
+            const allItems = DB.getAll();
+            const myItems = allItems.filter(item => item.publisher === user.username);
+            
+            document.getElementById('profilePublishCount').textContent = myItems.length;
+            
+            const listEl = document.getElementById('myPublishList');
+            const emptyEl = document.getElementById('myPublishEmpty');
+            
+            if (myItems.length === 0) {
+                listEl.innerHTML = '';
+                emptyEl.classList.remove('hidden');
+                return;
+            }
+            
+            emptyEl.classList.add('hidden');
+            listEl.innerHTML = myItems.map(item => {
+                const badgeClass = item.type === 'lost' ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600';
+                const badgeText = item.type === 'lost' ? '寻物' : '招领';
+                
+                return `
+                    <div class="flex items-center gap-3 p-3 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer" onclick="closeProfileModal(); showItemDetail(${item.id})">
+                        <img src="${item.image}" alt="${item.title}" class="w-12 h-12 rounded-lg object-cover">
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center gap-2">
+                                <span class="font-medium text-sm text-slate-800 truncate">${item.title}</span>
+                                <span class="px-1.5 py-0.5 text-xs rounded ${badgeClass} flex-shrink-0">${badgeText}</span>
+                            </div>
+                            <div class="text-xs text-slate-500">${item.date} · ${item.location}</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // ==================== 本地物品数据库 ====================
+        const DB_KEY = 'xunwu_items_db';
+        
+        const mockData = [
+            { id: 1, type: 'lost', title: '黑色皮质钱包', category: '箱包类', color: '黑色', location: '三食堂二楼', date: '2025-01-15', image: 'https://picsum.photos/400/300?random=1', description: '黑色皮质钱包，内有身份证、银行卡和少量现金，钱包边角有轻微磨损。', contact: '138****5678', reward: '必有重谢', features: ['皮质', '对折', '黑色'], publisher: 'demo' },
+            { id: 2, type: 'lost', title: 'AirPods Pro 耳机', category: '电子数码', color: '白色', location: '图书馆三楼', date: '2025-01-14', image: 'https://picsum.photos/400/300?random=2', description: '白色AirPods Pro，充电盒背面有刻字，左耳续航时间较短。', contact: '139****1234', reward: '500元酬谢', features: ['白色', '耳机', '苹果'], publisher: 'demo' },
+            { id: 3, type: 'lost', title: '银色钥匙串', category: '钥匙', color: '银色', location: '操场看台下', date: '2025-01-14', image: 'https://picsum.photos/400/300?random=3', description: '一串钥匙共5把，有一个小熊挂件，其中一把是宿舍钥匙。', contact: '137****9876', reward: '', features: ['银色', '钥匙', '挂件'], publisher: '' },
+            { id: 4, type: 'lost', title: '蓝色保温杯', category: '其他物品', color: '蓝色', location: '教学楼A座302', date: '2025-01-13', image: 'https://picsum.photos/400/300?random=4', description: '膳魔师蓝色保温杯，杯身有贴纸，底部有轻微凹陷。', contact: '136****5432', reward: '', features: ['蓝色', '杯子', '不锈钢'], publisher: '' },
+            { id: 5, type: 'lost', title: '黑色边框眼镜', category: '衣物配饰', color: '黑色', location: '自习室B区', date: '2025-01-12', image: 'https://picsum.photos/400/300?random=9', description: '黑框近视眼镜，镜腿有轻微磨损，镜片度数约300度。', contact: '135****6677', reward: '200元酬谢', features: ['黑色', '眼镜', '全框'], publisher: '' },
+            { id: 6, type: 'lost', title: '校园卡', category: '证件文件', color: '蓝色', location: '超市内', date: '2025-01-11', image: 'https://picsum.photos/400/300?random=10', description: '校园学生卡，卡号尾号2341，卡套是透明的。', contact: '134****8899', reward: '', features: ['蓝色', '卡片', '证件'], publisher: '' },
+
+            { id: 7, type: 'found', title: '红色雨伞', category: '其他物品', color: '红色', location: '校车站牌', date: '2025-01-15', image: 'https://picsum.photos/400/300?random=5', description: '捡到一把红色折叠伞，伞面有花纹图案，手柄是黑色的。', contact: '王同学 135****7788', reward: '', features: ['红色', '雨伞', '折叠'], publisher: 'demo' },
+            { id: 8, type: 'found', title: '学生卡一张', category: '证件文件', color: '蓝色', location: '超市收银台', date: '2025-01-15', image: 'https://picsum.photos/400/300?random=6', description: '捡到一张学生校园卡，卡号尾号3456，已交至超市服务台。', contact: '超市服务台', reward: '', features: ['蓝色', '卡片', '证件'], publisher: '' },
+            { id: 9, type: 'found', title: '黑色双肩包', category: '箱包类', color: '黑色', location: '体育馆更衣室', date: '2025-01-14', image: 'https://picsum.photos/400/300?random=7', description: 'Nike黑色双肩包，包内有运动衣物和毛巾，无贵重物品。', contact: '体育馆前台', reward: '', features: ['黑色', '背包', '运动'], publisher: '' },
+            { id: 10, type: 'found', title: '苹果手机', category: '电子数码', color: '黑色', location: '篮球场边', date: '2025-01-13', image: 'https://picsum.photos/400/300?random=8', description: '捡到iPhone 14手机一台，屏幕有贴膜，已交保卫处。', contact: '保卫处 88888', reward: '', features: ['黑色', '手机', '苹果'], publisher: '' },
+            { id: 11, type: 'found', title: '白色无线耳机', category: '电子数码', color: '白色', location: '食堂一楼', date: '2025-01-12', image: 'https://picsum.photos/400/300?random=11', description: '捡到白色无线耳机一副，充电盒有划痕，放在食堂服务台。', contact: '食堂服务台', reward: '', features: ['白色', '耳机', '无线'], publisher: '' },
+            { id: 12, type: 'found', title: '棕色钱包', category: '箱包类', color: '棕色', location: '教学楼走廊', date: '2025-01-11', image: 'https://picsum.photos/400/300?random=12', description: '棕色短款钱包，内无现金，有银行卡若干，已交楼管处。', contact: 'A座楼管', reward: '', features: ['棕色', '钱包', '短款'], publisher: '' }
+        ];
+
+        const DB = {
+            init() {
+                if (!localStorage.getItem(DB_KEY)) {
+                    localStorage.setItem(DB_KEY, JSON.stringify(mockData));
+                }
+            },
+            
+            getAll() {
+                return JSON.parse(localStorage.getItem(DB_KEY)) || [];
+            },
+            
+            getLost() {
+                return this.getAll().filter(item => item.type === 'lost');
+            },
+            
+            getFound() {
+                return this.getAll().filter(item => item.type === 'found');
+            },
+            
+            getById(id) {
+                return this.getAll().find(item => item.id === parseInt(id));
+            },
+            
+            add(item) {
+                const items = this.getAll();
+                item.id = Date.now();
+                items.unshift(item);
+                localStorage.setItem(DB_KEY, JSON.stringify(items));
+                return item;
+            },
+            
+            matchByFeatures({ type, color, category }) {
+                const items = this.getAll();
+                return items.map(item => {
+                    let score = 0;
+                    if (item.color === color) score += 40;
+                    if (item.category === category) score += 35;
+                    if (item.type !== type) score += 25;
+                    return { ...item, similarity: score };
+                })
+                .filter(item => item.similarity > 30)
+                .sort((a, b) => b.similarity - a.similarity);
+            },
+            
+            getStats() {
+                const all = this.getAll();
+                const lost = all.filter(i => i.type === 'lost').length;
+                const found = all.filter(i => i.type === 'found').length;
+                const rate = all.length > 0 ? Math.round((found / all.length) * 100) : 0;
+                return { total: all.length, found, rate };
+            }
+        };
+
+        // ==================== 主页面初始化 ====================
+        function initMainPage() {
+            DB.init();
+            renderLostItems();
+            renderFoundItems();
+            initUploadZone();
+            initMobileMenu();
+            initSmoothScroll();
+            animateNumbers();
+            initFormSubmit();
+        }
+
+        // 页面加载时检查登录状态
+        document.addEventListener('DOMContentLoaded', function() {
+            UserDB.init();
+            
+            if (UserDB.isLoggedIn()) {
+                document.getElementById('authPage').classList.add('hidden');
+                document.getElementById('mainContent').classList.remove('hidden');
+                
+                const user = UserDB.getCurrent();
+                document.getElementById('navUsername').textContent = user.username;
+                updateNavAvatar(user);
+                document.getElementById('userArea').classList.remove('hidden');
+                
+                initMainPage();
+            } else {
+                document.body.style.overflow = 'hidden';
+            }
+        });
+
+        // ==================== 渲染函数 ====================
+        function renderLostItems() {
+            const grid = document.getElementById('lostItemsGrid');
+            const items = DB.getLost().slice(0, 4);
+            grid.innerHTML = items.map(item => createItemCard(item)).join('');
+        }
+
+        function renderFoundItems() {
+            const grid = document.getElementById('foundItemsGrid');
+            const items = DB.getFound().slice(0, 4);
+            grid.innerHTML = items.map(item => createItemCard(item)).join('');
+        }
+
+        function createItemCard(item) {
+            const badgeClass = item.type === 'lost' ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600';
+            const badgeText = item.type === 'lost' ? '寻物启事' : '失物招领';
+            
+            return `
+                <div class="bg-white rounded-2xl overflow-hidden border border-slate-200 card-hover cursor-pointer" onclick="showItemDetail(${item.id})">
+                    <div class="relative h-48 overflow-hidden">
+                        <img src="${item.image}" alt="${item.title}" class="w-full h-full object-cover">
+                        <span class="absolute top-3 left-3 px-2.5 py-1 text-xs font-medium rounded-full ${badgeClass}">${badgeText}</span>
+                    </div>
+                    <div class="p-4">
+                        <h3 class="font-semibold text-slate-800 mb-2 truncate">${item.title}</h3>
+                        <div class="space-y-1.5 text-sm text-slate-500">
+                            <div class="flex items-center gap-2">
+                                <i class="fa fa-map-marker w-4 text-slate-400"></i>
+                                <span class="truncate">${item.location}</span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <i class="fa fa-clock-o w-4 text-slate-400"></i>
+                                <span>${item.date}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // ==================== 物品详情弹窗 ====================
+        function showItemDetail(id) {
+            const item = DB.getById(id);
+            if (!item) return;
+            
+            const badgeClass = item.type === 'lost' ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600';
+            const badgeText = item.type === 'lost' ? '寻物启事' : '失物招领';
+            
+            document.getElementById('modalContent').innerHTML = `
+                <div class="relative h-64">
+                    <img src="${item.image}" alt="${item.title}" class="w-full h-full object-cover">
+                    <span class="absolute top-4 left-4 px-3 py-1 text-sm font-medium rounded-full ${badgeClass}">${badgeText}</span>
+                </div>
+                <div class="p-6">
+                    <h3 class="text-xl font-bold text-slate-800 mb-4 font-display">${item.title}</h3>
+                    
+                    <div class="grid grid-cols-2 gap-4 mb-6">
+                        <div class="text-sm">
+                            <span class="text-slate-500">物品分类</span>
+                            <p class="font-medium text-slate-700 mt-0.5">${item.category}</p>
+                        </div>
+                        <div class="text-sm">
+                            <span class="text-slate-500">主色调</span>
+                            <p class="font-medium text-slate-700 mt-0.5">${item.color}</p>
+                        </div>
+                        <div class="text-sm">
+                            <span class="text-slate-500">地点</span>
+                            <p class="font-medium text-slate-700 mt-0.5">${item.location}</p>
+                        </div>
+                        <div class="text-sm">
+                            <span class="text-slate-500">日期</span>
+                            <p class="font-medium text-slate-700 mt-0.5">${item.date}</p>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-6">
+                        <h4 class="text-sm font-medium text-slate-500 mb-2">详细描述</h4>
+                        <p class="text-slate-700 text-sm leading-relaxed">${item.description}</p>
+                    </div>
+                    
+                    ${item.reward ? `
+                    <div class="mb-6 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                        <div class="flex items-center gap-2 text-amber-700">
+                            <i class="fa fa-gift"></i>
+                            <span class="font-medium">酬谢：${item.reward}</span>
+                        </div>
+                    </div>
+                    ` : ''}
+                    
+                    <div class="p-4 bg-slate-50 rounded-xl">
+                        <div class="text-sm text-slate-500 mb-2">联系方式</div>
+                        <div class="font-semibold text-slate-800">${item.contact}</div>
+                    </div>
+                    
+                    <button class="w-full mt-6 py-3 bg-primary text-white rounded-xl font-medium hover:bg-primary/90 transition-colors">
+                        立即联系
+                    </button>
+                </div>
+            `;
+            
+            document.getElementById('itemModal').classList.remove('hidden');
+            document.getElementById('itemModal').classList.add('flex');
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeModal() {
+            document.getElementById('itemModal').classList.add('hidden');
+            document.getElementById('itemModal').classList.remove('flex');
+            document.body.style.overflow = '';
+        }
+
+        // ==================== 图片上传与识别 ====================
+        function initUploadZone() {
+            const uploadZone = document.getElementById('uploadZone');
+            const imageInput = document.getElementById('imageInput');
+            
+            uploadZone.addEventListener('click', () => imageInput.click());
+            
+            uploadZone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                uploadZone.classList.add('dragover');
+            });
+            
+            uploadZone.addEventListener('dragleave', () => {
+                uploadZone.classList.remove('dragover');
+            });
+            
+            uploadZone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                uploadZone.classList.remove('dragover');
+                const files = e.dataTransfer.files;
+                if (files.length > 0 && files[0].type.startsWith('image/')) {
+                    handleImageFile(files[0]);
+                }
+            });
+            
+            imageInput.addEventListener('change', (e) => {
+                if (e.target.files.length > 0) {
+                    handleImageFile(e.target.files[0]);
+                }
+            });
+        }
+
+        function handleImageFile(file) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                document.getElementById('imagePreview').src = e.target.result;
+                document.getElementById('uploadPlaceholder').classList.add('hidden');
+                document.getElementById('previewContainer').classList.remove('hidden');
+                document.getElementById('recognizeBtn').disabled = false;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function clearImage() {
+            document.getElementById('imageInput').value = '';
+            document.getElementById('uploadPlaceholder').classList.remove('hidden');
+            document.getElementById('previewContainer').classList.add('hidden');
+            document.getElementById('recognizeBtn').disabled = true;
+            document.getElementById('recognitionProgress').classList.add('hidden');
+            document.getElementById('recognitionResult').classList.add('hidden');
+            document.getElementById('resultPlaceholder').classList.remove('hidden');
+            document.getElementById('matchResultSection').classList.add('hidden');
+        }
+
+        function startRecognition() {
+            const progressDiv = document.getElementById('recognitionProgress');
+            const progressBar = document.getElementById('progressBar');
+            const progressText = document.getElementById('progressText');
+            const resultDiv = document.getElementById('recognitionResult');
+            const placeholder = document.getElementById('resultPlaceholder');
+            
+            progressDiv.classList.remove('hidden');
+            document.getElementById('recognizeBtn').disabled = true;
+            
+            const steps = [
+                { progress: 20, text: '正在加载图像...' },
+                { progress: 40, text: '提取图像特征...' },
+                { progress: 60, text: '分析物品属性...' },
+                { progress: 80, text: '智能匹配数据库...' },
+                { progress: 100, text: '识别完成！' }
+            ];
+            
+            let stepIndex = 0;
+            
+            const interval = setInterval(() => {
+                if (stepIndex < steps.length) {
+                    progressBar.style.width = steps[stepIndex].progress + '%';
+                    progressText.textContent = steps[stepIndex].text;
+                    stepIndex++;
+                } else {
+                    clearInterval(interval);
+                    
+                    setTimeout(() => {
+                        progressDiv.classList.add('hidden');
+                        placeholder.classList.add('hidden');
+                        resultDiv.classList.remove('hidden');
+                        
+                        const recognizeResult = simulateRecognition();
+                        showRecognitionResult(recognizeResult);
+                        
+                        setTimeout(() => {
+                            document.getElementById('matchResultSection').classList.remove('hidden');
+                            document.getElementById('matchResultSection').scrollIntoView({ behavior: 'smooth' });
+                        }, 800);
+                    }, 500);
+                }
+            }, 600);
+        }
+
+        function simulateRecognition() {
+            const types = ['钱包', '耳机', '钥匙', '手机', '雨伞', '眼镜', '证件'];
+            const colors = ['黑色', '白色', '蓝色', '红色', '棕色', '银色'];
+            const categories = ['箱包类', '电子数码', '钥匙', '证件文件', '其他物品', '衣物配饰'];
+            
+            const randomType = types[Math.floor(Math.random() * types.length)];
+            const randomColor = colors[Math.floor(Math.random() * colors.length)];
+            const randomCategory = categories[Math.floor(Math.random() * categories.length)];
+            
+            return {
+                type: randomType,
+                color: randomColor,
+                category: randomCategory,
+                confidence: Math.floor(Math.random() * 20) + 80,
+                features: [randomColor, randomType, '日常用品']
+            };
+        }
+
+        function showRecognitionResult(result) {
+            document.getElementById('itemTags').innerHTML = result.features.map(f => 
+                `<span class="px-3 py-1 bg-primary/10 text-primary text-sm rounded-full font-medium">${f}</span>`
+            ).join('');
+            
+            document.getElementById('itemType').textContent = result.category;
+            document.getElementById('typeConfidence').textContent = result.confidence + '%';
+            document.getElementById('itemColor').textContent = result.color;
+            
+            const colorMap = {
+                '黑色': '#1a1a1a', '白色': '#ffffff', '蓝色': '#3B82F6',
+                '红色': '#EF4444', '棕色': '#92400E', '银色': '#94A3B8'
+            };
+            document.getElementById('colorPreview').style.backgroundColor = colorMap[result.color] || '#666';
+            document.getElementById('itemFeatures').textContent = result.features.join('、');
+            
+            const matches = DB.matchByFeatures({
+                type: 'lost',
+                color: result.color,
+                category: result.category
+            });
+            
+            document.getElementById('matchCount').textContent = `找到 ${matches.length} 条匹配`;
+            
+            document.getElementById('matchResults').innerHTML = matches.slice(0, 5).map(item => `
+                <div class="flex items-center gap-3 p-2.5 bg-white rounded-lg border border-slate-200 hover:border-primary/50 cursor-pointer transition-colors" onclick="showItemDetail(${item.id})">
+                    <img src="${item.image}" alt="${item.title}" class="w-12 h-12 rounded-lg object-cover">
+                    <div class="flex-1 min-w-0">
+                        <div class="font-medium text-sm text-slate-800 truncate">${item.title}</div>
+                        <div class="text-xs text-slate-500">${item.location}</div>
+                    </div>
+                    <div class="text-xs text-secondary font-medium">${item.similarity}%匹配</div>
+                </div>
+            `).join('');
+            
+            document.getElementById('matchResultGrid').innerHTML = matches.map(item => createItemCard(item)).join('');
+        }
+
+        function useCamera() {
+            alert('相机功能需要在HTTPS环境下调用摄像头API，演示模式请上传图片');
+        }
+
+        // ==================== 发布表单 ====================
+        let currentPublishType = 'lost';
+        
+        function switchPublishTab(type) {
+            currentPublishType = type;
+            const tabLost = document.getElementById('tabLost');
+            const tabFound = document.getElementById('tabFound');
+            
+            if (type === 'lost') {
+                tabLost.classList.add('bg-white', 'text-slate-800');
+                tabLost.classList.remove('text-slate-300');
+                tabFound.classList.remove('bg-white', 'text-slate-800');
+                tabFound.classList.add('text-slate-300');
+            } else {
+                tabFound.classList.add('bg-white', 'text-slate-800');
+                tabFound.classList.remove('text-slate-300');
+                tabLost.classList.remove('bg-white', 'text-slate-800');
+                tabLost.classList.add('text-slate-300');
+            }
+        }
+
+        function initFormSubmit() {
+            document.getElementById('publishForm').addEventListener('submit', function(e) {
+                e.preventDefault();
+                
+                const currentUser = UserDB.getCurrent();
+                
+                const newItem = {
+                    type: currentPublishType,
+                    title: document.getElementById('itemTitle').value,
+                    category: document.getElementById('itemCategory').value,
+                    color: '未知',
+                    location: document.getElementById('itemLocation').value,
+                    date: document.getElementById('itemDate').value,
+                    image: '', // 无图片时显示占位（不生成随机图，避免图文不匹配）
+                    description: document.getElementById('itemDesc').value,
+                    contact: document.getElementById('itemContact').value,
+                    reward: document.getElementById('itemReward').value,
+                    features: [],
+                    publisher: currentUser ? currentUser.username : '匿名'
+                };
+                
+                if (!newItem.title || !newItem.category || !newItem.location || !newItem.date || !newItem.description || !newItem.contact) {
+                    alert('请填写所有必填项');
+                    return;
+                }
+                
+                DB.add(newItem);
+                
+                renderLostItems();
+                renderFoundItems();
+                animateNumbers();
+                
+                alert('发布成功！您的信息已存入本地数据库，AI将自动为您匹配相关物品。');
+                this.reset();
+            });
+        }
+
+        // ==================== 工具函数 ====================
+        function scrollToRecognize() {
+            document.getElementById('recognize').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function initMobileMenu() {
+            const btn = document.getElementById('mobileMenuBtn');
+            const menu = document.getElementById('mobileMenu');
+            
+            btn.addEventListener('click', () => {
+                menu.classList.toggle('hidden');
+            });
+        }
+
+        function initSmoothScroll() {
+            document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+                anchor.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    const target = document.querySelector(this.getAttribute('href'));
+                    if (target) {
+                        target.scrollIntoView({ behavior: 'smooth' });
+                        document.getElementById('mobileMenu').classList.add('hidden');
+                    }
+                });
+            });
+        }
+
+        function animateNumbers() {
+            const stats = DB.getStats();
+            
+            const observer = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        animateValue('stat1', 0, stats.total, 2000);
+                        animateValue('stat2', 0, stats.found, 2000);
+                        animateValue('stat3', 0, stats.rate, 2000, '%');
+                        observer.disconnect();
+                    }
+                });
+            }, { threshold: 0.5 });
+            
+            observer.observe(document.getElementById('home'));
+        }
+
+        function animateValue(id, start, end, duration, suffix = '') {
+            const element = document.getElementById(id);
+            const range = end - start;
+            const startTime = performance.now();
+            
+            function update(currentTime) {
+                const elapsed = currentTime - startTime;
+                const progress = Math.min(elapsed / duration, 1);
+                const easeProgress = 1 - Math.pow(1 - progress, 3);
+                const current = Math.floor(start + range * easeProgress);
+                element.textContent = current.toLocaleString() + suffix;
+                
+                if (progress < 1) {
+                    requestAnimationFrame(update);
+                } else {
+                    element.textContent = end.toLocaleString() + suffix;
+                }
+            }
+            
+            requestAnimationFrame(update);
+        }
+
+        // ESC关闭弹窗
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                closeModal();
+                closeProfileModal();
+            }
+        });
+    </script>
+</body>
+</html>
+

@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>发布信息 - 寻物智联</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#3B82F6',
+                        secondary: '#10B981',
+                        accent: '#F59E0B',
+                        dark: '#1E293B',
+                        light: '#F8FAFC'
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'Noto Sans SC', 'system-ui', 'sans-serif'],
+                        display: ['Inter', 'Noto Sans SC', 'sans-serif']
+                    }
+                }
+            }
+        }
+    </script>
+    <link href="css/style.css" rel="stylesheet">
+</head>
+<body data-page="publish" class="theme-collage bg-slate-50 text-slate-800 font-sans min-h-screen flex flex-col">
+
+    <!-- ==================== 导航栏 ==================== -->
+    <nav class="fixed top-0 left-0 right-0 z-50 glass border-b border-slate-200/50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center h-16">
+                <a href="index.html" class="flex items-center space-x-2">
+                    <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-secondary flex items-center justify-center">
+                        <i class="fa fa-search text-white text-lg"></i>
+                    </div>
+                    <span class="text-xl font-bold text-gradient font-display">寻物智联</span>
+                </a>
+
+                <div class="hidden md:flex items-center space-x-7">
+                    <a href="index.html" data-nav="home" class="nav-link text-slate-600 hover:text-primary font-medium transition-colors">首页</a>
+                    <a href="lost.html" data-nav="lost" class="nav-link text-slate-600 hover:text-primary font-medium transition-colors">失物列表</a>
+                    <a href="found.html" data-nav="found" class="nav-link text-slate-600 hover:text-primary font-medium transition-colors">招领列表</a>
+                    <a href="heatmap.html" data-nav="heatmap" class="nav-link text-slate-600 hover:text-primary font-medium transition-colors">失物热力图</a>
+                    <a href="recognize.html" data-nav="recognize" class="nav-link text-slate-600 hover:text-primary font-medium transition-colors">智能识别</a>
+                    <a href="publish.html" data-nav="publish" class="nav-link text-slate-600 hover:text-primary font-medium transition-colors">发布信息</a>
+                    <a href="profile.html" data-nav="profile" class="nav-link text-slate-600 hover:text-primary font-medium transition-colors">个人中心</a>
+                    <a href="feedback.html" data-nav="feedback" class="nav-link text-slate-600 hover:text-primary font-medium transition-colors inline-flex items-center gap-1"><i class="fa fa-commenting-o"></i>意见反馈</a>
+                </div>
+
+                <div class="flex items-center space-x-4">
+                    <div id="userArea" class="hidden flex items-center gap-3">
+                        <div class="text-right hidden sm:block">
+                            <div class="text-sm font-medium text-slate-700" id="navUsername">用户</div>
+                            <div class="text-xs text-slate-500">已登录</div>
+                        </div>
+                        <div class="relative">
+                            <button onclick="toggleUserMenu()" class="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-white font-medium overflow-hidden">
+                                <span id="userAvatar">用</span>
+                            </button>
+                            <div id="userMenu" class="hidden absolute right-0 top-12 w-40 bg-white rounded-xl shadow-xl border border-slate-200 py-2">
+                                <a href="profile.html" class="w-full text-left px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 hover:text-primary transition-colors block">
+                                    <i class="fa fa-user-o mr-2"></i>个人中心
+                                </a>
+                                <a href="profile.html#publish" class="w-full text-left px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 hover:text-primary transition-colors block">
+                                    <i class="fa fa-list-ul mr-2"></i>我的发布
+                                </a>
+                                <hr class="my-2 border-slate-100">
+                                <button onclick="logout()" class="w-full text-left px-4 py-2 text-sm text-red-500 hover:bg-red-50 transition-colors">
+                                    <i class="fa fa-sign-out mr-2"></i>退出登录
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <button class="md:hidden text-slate-600 text-xl" id="mobileMenuBtn">
+                        <i class="fa fa-bars"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div id="mobileMenu" class="hidden md:hidden bg-white border-t border-slate-200">
+            <div class="px-4 py-3 space-y-2">
+                <a href="index.html" data-nav="home" class="block py-2 text-slate-600 hover:text-primary">首页</a>
+                <a href="lost.html" data-nav="lost" class="block py-2 text-slate-600 hover:text-primary">失物列表</a>
+                <a href="found.html" data-nav="found" class="block py-2 text-slate-600 hover:text-primary">招领列表</a>
+                <a href="heatmap.html" data-nav="heatmap" class="block py-2 text-slate-600 hover:text-primary">失物热力图</a>
+                <a href="recognize.html" data-nav="recognize" class="block py-2 text-slate-600 hover:text-primary">智能识别</a>
+                <a href="publish.html" data-nav="publish" class="block py-2 text-slate-600 hover:text-primary">发布信息</a>
+                <a href="profile.html" data-nav="profile" class="block py-2 text-slate-600 hover:text-primary">个人中心</a>
+                <a href="feedback.html" data-nav="feedback" class="block py-2 text-primary font-medium hover:text-primary"><i class="fa fa-commenting-o mr-1"></i>意见反馈</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- ==================== 主内容 ==================== -->
+    <main class="flex-grow pt-16">
+                <section class="collage-banner relative overflow-hidden text-white py-20">
+            <div class="cb-shapes">
+                <span class="shape cb-s1"></span><span class="shape cb-s2"></span><span class="shape cb-s3"></span><span class="shape cb-s4"></span>
+            </div>
+            <div class="cb-dots"></div>
+            <div class="tear-edge"></div>
+            <div class="collage-frame tilt-r hidden lg:block" style="right:4%;top:50%;transform:translateY(-50%);width:360px;max-width:32vw;">
+                <img src="images/corner-art-h.png" alt="拼贴插画装饰">
+            </div>
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
+                <div class="max-w-2xl">
+                    <div class="cb-tape"><span>
+发布信息
+</span></div>
+                    <h1 class="text-3xl md:text-4xl lg:text-5xl font-bold font-display leading-tight mb-5 cb-title">
+发布
+ <span class="mark-yellow">
+失物 / 招领
+</span></h1>
+                    <p class="text-slate-300 text-lg leading-relaxed max-w-xl mb-8">
+填写物品详情并上传图片，借助社区力量与 AI 智能匹配，让失物更快回到主人身边。
+</p>
+                    <a href="
+profile.html
+" class="btn-glow inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-primary to-secondary text-white rounded-xl font-semibold">
+                        <i class="fa fa-arrow-right"></i><span>
+我的发布
+</span>
+                    </a>
+                </div>
+            </div>
+        </section>
+        <!-- 发布表单 -->
+        <section class="py-14 bg-slate-50">
+            <div class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="card-art p-7 sm:p-9">
+                    <!-- 类型切换 -->
+                    <div class="flex justify-center mb-8">
+                        <div class="inline-flex p-1.5 rounded-xl bg-[var(--ink)] gap-1">
+                            <button type="button" id="tabLost" onclick="switchPublishTab('lost')" class="px-6 py-2.5 rounded-lg font-medium text-sm transition-all bg-white text-slate-800">
+                                <i class="fa fa-search mr-1.5"></i>我丢了东西
+                            </button>
+                            <button type="button" id="tabFound" onclick="switchPublishTab('found')" class="px-6 py-2.5 rounded-lg font-medium text-sm transition-all text-slate-300">
+                                <i class="fa fa-gift mr-1.5"></i>我捡到东西
+                            </button>
+                        </div>
+                    </div>
+
+                    <form id="publishForm" class="space-y-6">
+                        <!-- 物品照片 -->
+                        <div>
+                            <label class="block text-sm font-semibold text-slate-700 mb-2">物品照片 <span class="text-slate-400 font-normal">（选填，可大幅提高匹配率）</span></label>
+                            <div id="publishImageZone" class="upload-zone !py-10 cursor-pointer">
+                                <div id="publishImagePlaceholder" class="text-center">
+                                    <div class="w-14 h-14 mx-auto mb-3 rounded-xl bg-primary/10 text-primary flex items-center justify-center text-xl"><i class="fa fa-camera"></i></div>
+                                    <p class="text-sm font-medium text-slate-700">点击上传物品照片</p>
+                                    <p class="text-xs text-slate-400 mt-1">JPG / PNG，单张不超过 2MB</p>
+                                </div>
+                                <img id="publishImagePreview" alt="物品照片" class="hidden max-h-44 mx-auto rounded-xl border-2 border-[var(--ink)]">
+                                <button type="button" id="publishImageClear" class="hidden mt-3 mx-auto px-4 py-1.5 text-xs rounded-lg border-2 border-red-200 text-red-500 hover:bg-red-50">清除图片</button>
+                            </div>
+                            <input type="file" id="publishImageInput" accept="image/*" class="hidden">
+                        </div>
+
+                        <div class="grid sm:grid-cols-2 gap-5">
+                            <div>
+                                <label class="block text-sm font-semibold text-slate-700 mb-2">物品名称 <span class="text-red-400">*</span></label>
+                                <input type="text" id="itemTitle" placeholder="如：黑色双肩包、AirPods 耳机" class="w-full px-4 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl text-slate-800 placeholder-slate-400 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-semibold text-slate-700 mb-2">物品分类 <span class="text-red-400">*</span></label>
+                                <select id="itemCategory" class="w-full px-4 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl text-slate-800 placeholder-slate-400 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all">
+                                    <option value="">请选择分类</option>
+                                    <option value="电子数码">电子数码</option>
+                                    <option value="证件文件">证件文件</option>
+                                    <option value="衣物配饰">衣物配饰</option>
+                                    <option value="箱包类">箱包类</option>
+                                    <option value="钥匙">钥匙</option>
+                                    <option value="其他物品">其他物品</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="grid sm:grid-cols-2 gap-5">
+                            <div>
+                                <label class="block text-sm font-semibold text-slate-700 mb-2">相关地点 <span class="text-red-400">*</span></label>
+                                <input type="text" id="itemLocation" placeholder="如：图书馆三楼、艺术楼 201" class="w-full px-4 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl text-slate-800 placeholder-slate-400 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-semibold text-slate-700 mb-2">相关日期 <span class="text-red-400">*</span></label>
+                                <input type="date" id="itemDate" class="w-full px-4 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl text-slate-800 placeholder-slate-400 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all">
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-semibold text-slate-700 mb-2">地图选点 <span class="text-slate-400 font-normal">（点击地图自动填入地点，可再手动微调文字）</span></label>
+                            <div id="publishMap" class="campus-map-wrap rounded-2xl border-2 border-slate-200 overflow-hidden bg-white"></div>
+                            <p class="text-xs text-slate-400 mt-2"><i class="fa fa-map-marker mr-1 text-primary"></i>已选地点：<span id="publishMapLabel" class="text-slate-600 font-medium">尚未选择（可选）</span></p>
+                            <input type="hidden" id="itemMapX">
+                            <input type="hidden" id="itemMapY">
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-semibold text-slate-700 mb-2">详细描述 <span class="text-red-400">*</span></label>
+                            <textarea id="itemDesc" rows="4" placeholder="描述物品的颜色、特征、品牌、有无明显标记等，信息越详细越有助于找回..." class="w-full px-4 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl text-slate-800 placeholder-slate-400 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all resize-none"></textarea>
+                        </div>
+
+                        <div class="grid sm:grid-cols-2 gap-5">
+                            <div>
+                                <label class="block text-sm font-semibold text-slate-700 mb-2">联系方式 <span class="text-red-400">*</span></label>
+                                <input type="text" id="itemContact" placeholder="手机号 / 微信号 / QQ" class="w-full px-4 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl text-slate-800 placeholder-slate-400 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-semibold text-slate-700 mb-2">酬谢方式 <span class="text-slate-400 font-normal">（选填）</span></label>
+                                <input type="text" id="itemReward" placeholder="如：请喝奶茶、现金酬谢 50 元" class="w-full px-4 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl text-slate-800 placeholder-slate-400 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all">
+                            </div>
+                        </div>
+
+                        <!-- 防冒领问答（仅招领时可设置） -->
+                        <div id="quizBlock" class="hidden p-5 bg-blue-50/60 border-2 border-blue-100 rounded-2xl">
+                            <div class="flex items-center justify-between mb-1">
+                                <label class="text-sm font-semibold text-slate-700"><i class="fa fa-shield text-primary mr-1"></i>防冒领问答 <span class="text-slate-400 font-normal">（选填，最多 5 题）</span></label>
+                                <button type="button" onclick="addQuizQuestion()" class="text-xs px-3 py-1.5 rounded-lg bg-primary text-white hover:bg-primary/90 transition-colors"><i class="fa fa-plus mr-1"></i>添加问题</button>
+                            </div>
+                            <p class="text-xs text-slate-500 mb-3">设置后，您的联系方式将部分隐藏，认领者答对所有问题才能查看完整联系方式。</p>
+                            <div id="quizList" class="space-y-4"></div>
+                        </div>
+
+                        <div class="flex flex-col sm:flex-row gap-3 pt-2">
+                            <button type="submit" class="btn-glow flex-1 inline-flex items-center justify-center gap-2 px-6 py-3.5 bg-gradient-to-r from-primary to-secondary text-white rounded-xl font-semibold text-base">
+                                <i class="fa fa-paper-plane"></i>立即发布
+                            </button>
+                            <a href="lost.html" class="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl border-2 border-slate-200 text-slate-600 font-medium hover:border-slate-400 transition-colors">
+                                <i class="fa fa-times"></i>取消
+                            </a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </section>
+    </main>
+        <footer class="collage-footer">
+        <div class="footer-inner">
+            <div class="grid md:grid-cols-4 gap-8 mb-8">
+                <div>
+                    <div class="flex items-center space-x-2 mb-4">
+                        <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-secondary flex items-center justify-center"><i class="fa fa-search text-white"></i></div>
+                        <span class="text-xl font-bold text-white font-display">寻物智联</span>
+                    </div>
+                    <p class="text-sm leading-relaxed">让每一件失物都能找到回家的路，用科技连接善意。</p>
+                </div>
+                <div>
+                    <h4 class="text-white font-semibold mb-4">快速链接</h4>
+                    <ul class="space-y-2 text-sm">
+                        <li><a href="index.html">首页</a></li><li><a href="lost.html">失物列表</a></li><li><a href="found.html">招领列表</a></li><li><a href="publish.html">发布信息</a></li>
+                    </ul>
+                </div>
+                <div>
+                    <h4 class="text-white font-semibold mb-4">智能服务</h4>
+                    <ul class="space-y-2 text-sm">
+                        <li><a href="recognize.html">智能识别</a></li><li><a href="profile.html">个人中心</a></li><li><a href="login.html">登录 / 注册</a></li><li><a href="admin.html">管理员入口</a></li>
+                    </ul>
+                </div>
+                <div>
+                    <h4 class="text-white font-semibold mb-4">关于平台</h4>
+                    <p class="text-sm leading-relaxed">艺术学院 · 数字媒体专业课程项目<br>用技术与艺术，温暖每一件失物。</p>
+                </div>
+            </div>
+            <div class="border-t border-white/10 pt-8 flex flex-col md:flex-row justify-between items-center text-sm">
+                <p>© 2026 寻物智联 · 让遗失的物品找到回家的路</p>
+                <div class="flex gap-6 mt-4 md:mt-0"><a href="#">隐私政策</a><a href="#">用户协议</a></div>
+            </div>
+        </div>
+    </footer>
+
+    <script src="js/common.js"></script>
+    <script src="js/campus-map.js"></script>
+    <script>
+        // ==================== 发布页逻辑 ====================
+        let currentPublishType = 'lost';
+
+        function switchPublishTab(type) {
+            currentPublishType = type;
+            const tabLost = document.getElementById('tabLost');
+            const tabFound = document.getElementById('tabFound');
+
+            if (type === 'lost') {
+                tabLost.classList.add('bg-white', 'text-slate-800');
+                tabLost.classList.remove('text-slate-300');
+                tabFound.classList.remove('bg-white', 'text-slate-800');
+                tabFound.classList.add('text-slate-300');
+            } else {
+                tabFound.classList.add('bg-white', 'text-slate-800');
+                tabFound.classList.remove('text-slate-300');
+                tabLost.classList.remove('bg-white', 'text-slate-800');
+                tabLost.classList.add('text-slate-300');
+            }
+            // 防冒领问答仅对“我捡到东西”开放
+            const quizBlock = document.getElementById('quizBlock');
+            if (quizBlock) quizBlock.classList.toggle('hidden', type !== 'found');
+            renderPublishMarker();
+        }
+
+        // ==================== 防冒领问答编辑 ====================
+        function addQuizQuestion() {
+            const list = document.getElementById('quizList');
+            if (!list) return;
+            if (list.children.length >= 5) { alert('最多添加 5 个问题'); return; }
+            const idx = list.children.length;
+            const div = document.createElement('div');
+            div.className = 'quiz-item p-4 bg-white border border-slate-200 rounded-xl';
+            div.innerHTML = `
+                <div class="flex justify-between items-center mb-2">
+                    <span class="text-xs font-medium text-slate-500">问题 ${idx + 1}</span>
+                    <button type="button" onclick="this.closest('.quiz-item').remove(); renumberQuiz();" class="text-xs text-red-400 hover:text-red-600"><i class="fa fa-trash mr-1"></i>删除</button>
+                </div>
+                <input type="text" class="quiz-q w-full px-3 py-2 mb-3 bg-slate-50 border border-slate-200 rounded-lg text-sm" placeholder="只有真正的失主才知道答案的问题，如：包内有什么物品？">
+                <div class="quiz-opts space-y-2">
+                    ${[0, 1, 2, 3].map(i => `
+                    <div class="flex items-center gap-2">
+                        <input type="radio" name="quiz_ans_${idx}" value="${i}" class="accent-primary" title="选为正确答案">
+                        <input type="text" class="quiz-opt flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm" placeholder="选项 ${i + 1}${i >= 2 ? '（可留空）' : ''}">
+                    </div>`).join('')}
+                </div>
+                <p class="text-[11px] text-slate-400 mt-2">请勾选正确答案左侧的单选按钮；至少填写 2 个选项，最多 4 个。</p>
+            `;
+            list.appendChild(div);
+            renumberQuiz();
+        }
+
+        function renumberQuiz() {
+            const list = document.getElementById('quizList');
+            if (!list) return;
+            Array.from(list.children).forEach((div, idx) => {
+                div.querySelector('span').textContent = '问题 ' + (idx + 1);
+                div.querySelectorAll('input[type="radio"]').forEach((r, oi) => {
+                    r.name = 'quiz_ans_' + idx;
+                    r.value = oi;
+                });
+            });
+        }
+
+        function collectQuiz() {
+            const list = document.getElementById('quizList');
+            if (!list || list.children.length === 0) return [];
+            const quiz = [];
+            for (const div of list.children) {
+                const q = div.querySelector('.quiz-q').value.trim();
+                const opts = Array.from(div.querySelectorAll('.quiz-opt')).map(o => o.value.trim());
+                const filled = opts.filter(Boolean);
+                const checked = div.querySelector('input[type="radio"]:checked');
+                if (!q) { alert('请填写问题题干'); return null; }
+                if (filled.length < 2) { alert('每题至少填写 2 个选项'); return null; }
+                if (!checked) { alert('请为每道题勾选正确答案'); return null; }
+                // 答案下标需映射到过滤空选项后的数组
+                const rawIdx = Number(checked.value);
+                if (!opts[rawIdx]) { alert('正确答案不能是空白选项'); return null; }
+                quiz.push({ q, options: filled, answer: filled.indexOf(opts[rawIdx]) });
+            }
+            return quiz;
+        }
+
+        // 校园地图选点
+        let publishMapX = null, publishMapY = null;
+
+        function publishMarkerColor() {
+            return currentPublishType === 'lost' ? '#EF4444' : '#10B981'; // 失物=红点，得物=绿点
+        }
+
+        function renderPublishMarker() {
+            const overlay = document.getElementById('mapOverlay');
+            if (!overlay || publishMapX == null || publishMapY == null) return;
+            const c = publishMarkerColor();
+            overlay.innerHTML = `<circle cx="${publishMapX}" cy="${publishMapY}" r="14" fill="${c}" stroke="#ffffff" stroke-width="3"/><circle cx="${publishMapX}" cy="${publishMapY}" r="4" fill="#ffffff"/>`;
+        }
+
+        function initCampusMapPicker() {
+            const wrap = document.getElementById('publishMap');
+            if (!wrap) return;
+            wrap.innerHTML = campusMapMarkup();
+            const svg = wrap.querySelector('svg');
+
+            svg.addEventListener('click', function (evt) {
+                const pt = campusSvgPoint(svg, evt.clientX, evt.clientY);
+                if (!pt || pt.x < 0 || pt.x > CAMPUS_MAP_W || pt.y < 0 || pt.y > CAMPUS_MAP_H) return;
+                publishMapX = pt.x;
+                publishMapY = pt.y;
+                const zone = campusZoneAt(pt.x, pt.y);
+                const locInput = document.getElementById('itemLocation');
+                if (zone) {
+                    locInput.value = zone.name;
+                } else if (!locInput.value.trim()) {
+                    locInput.value = '地图选点';
+                }
+                document.getElementById('itemMapX').value = pt.x;
+                document.getElementById('itemMapY').value = pt.y;
+                document.getElementById('publishMapLabel').textContent = zone
+                    ? (zone.name + '（' + pt.x + ', ' + pt.y + '）')
+                    : ('自定义点（' + pt.x + ', ' + pt.y + '）');
+                renderPublishMarker();
+            });
+        }
+
+        // 发布图片上传（选填）
+        let publishImageData = '';
+        function initPublishImageUpload() {
+            const zone = document.getElementById('publishImageZone');
+            const input = document.getElementById('publishImageInput');
+            const preview = document.getElementById('publishImagePreview');
+            const placeholder = document.getElementById('publishImagePlaceholder');
+            const clearBtn = document.getElementById('publishImageClear');
+            if (!zone || !input) return;
+
+            zone.addEventListener('click', () => input.click());
+            input.addEventListener('change', function () {
+                const file = this.files[0];
+                if (!file || !file.type.startsWith('image/')) return;
+                if (file.size > 2 * 1024 * 1024) {
+                    alert('图片不能超过 2MB，请压缩后重试');
+                    this.value = '';
+                    return;
+                }
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        const maxW = 800;
+                        if (img.width > maxW) {
+                            const canvas = document.createElement('canvas');
+                            const scale = maxW / img.width;
+                            canvas.width = maxW;
+                            canvas.height = Math.round(img.height * scale);
+                            canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+                            publishImageData = canvas.toDataURL('image/jpeg', 0.8);
+                        } else {
+                            publishImageData = ev.target.result;
+                        }
+                        preview.src = publishImageData;
+                        preview.classList.remove('hidden');
+                        placeholder.classList.add('hidden');
+                        clearBtn.classList.remove('hidden');
+                    };
+                    img.src = ev.target.result;
+                };
+                reader.readAsDataURL(file);
+            });
+            clearBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                publishImageData = '';
+                preview.classList.add('hidden');
+                placeholder.classList.remove('hidden');
+                clearBtn.classList.add('hidden');
+                input.value = '';
+            });
+        }
+
+        function initFormSubmit() {
+            document.getElementById('publishForm').addEventListener('submit', async function (e) {
+                e.preventDefault();
+
+                const currentUser = UserDB.getCurrent();
+
+                const newItem = {
+                    type: currentPublishType,
+                    title: document.getElementById('itemTitle').value,
+                    category: document.getElementById('itemCategory').value,
+                    color: '未知',
+                    location: document.getElementById('itemLocation').value,
+                    date: document.getElementById('itemDate').value,
+                    image: publishImageData || '',
+                    description: document.getElementById('itemDesc').value,
+                    contact: document.getElementById('itemContact').value,
+                    reward: document.getElementById('itemReward').value,
+                    mapX: document.getElementById('itemMapX').value || null,
+                    mapY: document.getElementById('itemMapY').value || null,
+                    features: [],
+                    publisher: currentUser ? currentUser.username : '匿名'
+                };
+
+                if (!newItem.title || !newItem.category || !newItem.location || !newItem.date || !newItem.description || !newItem.contact) {
+                    alert('请填写所有必填项');
+                    return;
+                }
+
+                // 仅招领类型收集防冒领问答
+                if (currentPublishType === 'found') {
+                    const quiz = collectQuiz();
+                    if (quiz === null) return; // 校验失败
+                    newItem.quiz = quiz;
+                }
+
+                try {
+                    await DB.add(newItem);
+                    alert('发布成功！您的信息已存入服务器数据库，AI将自动为您匹配相关物品。');
+                    location.href = currentPublishType === 'lost' ? 'lost.html' : 'found.html';
+                } catch (err) {
+                    alert(err.message);
+                }
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', async function () {
+            const ok = await requireAuth();
+            if (!ok) return;
+            initPublishImageUpload();
+            initCampusMapPicker();
+            initFormSubmit();
+        });
+    </script>
+</body>
+</html>

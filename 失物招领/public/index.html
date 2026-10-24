@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>寻物智联 - 首页</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#3B82F6',
+                        secondary: '#10B981',
+                        accent: '#F59E0B',
+                        dark: '#1E293B',
+                        light: '#F8FAFC'
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'Noto Sans SC', 'system-ui', 'sans-serif'],
+                        display: ['Inter', 'Noto Sans SC', 'sans-serif']
+                    }
+                }
+            }
+        }
+    </script>
+    <link href="css/style.css" rel="stylesheet">
+</head>
+<body data-page="home" class="theme-collage bg-slate-50 text-slate-800 font-sans min-h-screen flex flex-col">
+
+    <!-- ==================== 导航栏 ==================== -->
+    <nav class="fixed top-0 left-0 right-0 z-50 glass border-b border-slate-200/50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center h-16">
+                <a href="index.html" class="flex items-center space-x-2">
+                    <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-secondary flex items-center justify-center">
+                        <i class="fa fa-search text-white text-lg"></i>
+                    </div>
+                    <span class="text-xl font-bold text-gradient font-display">寻物智联</span>
+                </a>
+
+                <div class="hidden md:flex items-center space-x-7">
+                    <a href="index.html" data-nav="home" class="nav-link text-slate-600 hover:text-primary font-medium transition-colors">首页</a>
+                    <a href="lost.html" data-nav="lost" class="nav-link text-slate-600 hover:text-primary font-medium transition-colors">失物列表</a>
+                    <a href="found.html" data-nav="found" class="nav-link text-slate-600 hover:text-primary font-medium transition-colors">招领列表</a>
+                    <a href="heatmap.html" data-nav="heatmap" class="nav-link text-slate-600 hover:text-primary font-medium transition-colors">失物热力图</a>
+                    <a href="recognize.html" data-nav="recognize" class="nav-link text-slate-600 hover:text-primary font-medium transition-colors">智能识别</a>
+                    <a href="publish.html" data-nav="publish" class="nav-link text-slate-600 hover:text-primary font-medium transition-colors">发布信息</a>
+                    <a href="profile.html" data-nav="profile" class="nav-link text-slate-600 hover:text-primary font-medium transition-colors">个人中心</a>
+                    <a href="feedback.html" data-nav="feedback" class="nav-link text-slate-600 hover:text-primary font-medium transition-colors inline-flex items-center gap-1"><i class="fa fa-commenting-o"></i>意见反馈</a>
+                </div>
+
+                <div class="flex items-center space-x-4">
+                    <div id="userArea" class="hidden flex items-center gap-3">
+                        <div class="text-right hidden sm:block">
+                            <div class="text-sm font-medium text-slate-700" id="navUsername">用户</div>
+                            <div class="text-xs text-slate-500">已登录</div>
+                        </div>
+                        <div class="relative">
+                            <button onclick="toggleUserMenu()" class="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-white font-medium overflow-hidden">
+                                <span id="userAvatar">用</span>
+                            </button>
+                            <div id="userMenu" class="hidden absolute right-0 top-12 w-40 bg-white rounded-xl shadow-xl border border-slate-200 py-2">
+                                <a href="profile.html" class="w-full text-left px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 hover:text-primary transition-colors block">
+                                    <i class="fa fa-user-o mr-2"></i>个人中心
+                                </a>
+                                <a href="profile.html#publish" class="w-full text-left px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 hover:text-primary transition-colors block">
+                                    <i class="fa fa-list-ul mr-2"></i>我的发布
+                                </a>
+                                <hr class="my-2 border-slate-100">
+                                <button onclick="logout()" class="w-full text-left px-4 py-2 text-sm text-red-500 hover:bg-red-50 transition-colors">
+                                    <i class="fa fa-sign-out mr-2"></i>退出登录
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <button class="md:hidden text-slate-600 text-xl" id="mobileMenuBtn">
+                        <i class="fa fa-bars"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div id="mobileMenu" class="hidden md:hidden bg-white border-t border-slate-200">
+            <div class="px-4 py-3 space-y-2">
+                <a href="index.html" data-nav="home" class="block py-2 text-slate-600 hover:text-primary">首页</a>
+                <a href="lost.html" data-nav="lost" class="block py-2 text-slate-600 hover:text-primary">失物列表</a>
+                <a href="found.html" data-nav="found" class="block py-2 text-slate-600 hover:text-primary">招领列表</a>
+                <a href="heatmap.html" data-nav="heatmap" class="block py-2 text-slate-600 hover:text-primary">失物热力图</a>
+                <a href="recognize.html" data-nav="recognize" class="block py-2 text-slate-600 hover:text-primary">智能识别</a>
+                <a href="publish.html" data-nav="publish" class="block py-2 text-slate-600 hover:text-primary">发布信息</a>
+                <a href="profile.html" data-nav="profile" class="block py-2 text-slate-600 hover:text-primary">个人中心</a>
+                <a href="feedback.html" data-nav="feedback" class="block py-2 text-primary font-medium hover:text-primary"><i class="fa fa-commenting-o mr-1"></i>意见反馈</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- ==================== 主内容 ==================== -->
+    <main class="flex-grow pt-16">
+        <!-- 英雄区域 -->
+        <section id="home" class="collage-banner relative overflow-hidden text-white py-20 lg:py-28">
+            <div class="cb-shapes">
+                <span class="shape cb-s1"></span><span class="shape cb-s2"></span><span class="shape cb-s3"></span><span class="shape cb-s4"></span>
+            </div>
+            <div class="cb-dots"></div>
+            <div class="absolute inset-0" style="position:absolute;z-index:2;pointer-events:none">
+                
+                
+            <!-- 拼贴主视觉 + 撕纸底边 -->
+            <div class="tear-edge"></div>
+            <div class="collage-frame tilt-l hidden md:block" style="right:2%;bottom:24px;width:430px;max-width:46vw;">
+                <img src="images/corner-art-h.png" alt="拼贴插画装饰">
+            </div>
+            </div>
+
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
+                <div class="text-center max-w-3xl mx-auto">
+                    <div class="cb-tape">
+                        
+                        <span>AI 智能图像识别 · 快速匹配失物</span>
+                    </div>
+
+                    <h1 class="text-4xl md:text-5xl lg:text-6xl font-bold mb-6 leading-tight font-display">
+                        让遗失的物品<br>
+                        <span class="mark-yellow">找到回家的路</span>
+                    </h1>
+
+                    <p class="text-lg text-slate-300 mb-10 max-w-2xl mx-auto leading-relaxed">
+                        基于人工智能图像识别技术，上传物品照片即可智能匹配，大幅提升失物找回概率，让每一件失物都能物归原主。
+                    </p>
+
+                    <!-- 搜索入口 -->
+                    <div class="bg-white hero-search rounded-2xl p-2 max-w-2xl mx-auto">
+                        <div class="flex flex-col sm:flex-row gap-2">
+                            <div class="flex-1 relative">
+                                <i class="fa fa-search absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"></i>
+                                <input type="text" id="searchInput" placeholder="搜索物品名称、地点、描述..."
+                                    class="w-full pl-11 pr-4 py-3 rounded-xl bg-slate-50 text-slate-800 focus:outline-none focus:ring-2 focus:ring-primary/30">
+                            </div>
+                            <button onclick="goSearch()" class="px-6 py-3 bg-gradient-to-r from-primary to-secondary text-white rounded-xl font-medium hover:shadow-lg hover:shadow-primary/30 transition-all flex items-center justify-center gap-2">
+                                <i class="fa fa-search"></i>
+                                <span>搜索</span>
+                            </button>
+                            <button onclick="location.href='recognize.html'" class="px-6 py-3 bg-white text-primary border-2 border-primary/30 rounded-xl font-medium hover:bg-primary/5 transition-all flex items-center justify-center gap-2">
+                                <i class="fa fa-camera"></i>
+                                <span>以图搜物</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 统计数据 -->
+                    <div class="grid grid-cols-3 gap-6 mt-12 max-w-lg mx-auto">
+                        <div class="text-center">
+                            <div class="text-3xl font-bold text-white font-display stat-number" id="stat1">0</div>
+                            <div class="text-sm text-slate-400 mt-1">累计发布</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-3xl font-bold text-white font-display stat-number" id="stat2">0</div>
+                            <div class="text-sm text-slate-400 mt-1">成功找回</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-3xl font-bold text-white font-display stat-number" id="stat3">0%</div>
+                            <div class="text-sm text-slate-400 mt-1">找回率</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 最新失物 -->
+        <section class="py-20 bg-slate-50">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="flex justify-between items-end mb-10">
+                    <div>
+                        <h2 class="text-3xl font-bold text-slate-800 mb-2 font-display">最新失物</h2><div class="section-rule"></div>
+                        <p class="text-slate-500">浏览最新发布的遗失物品信息，帮助他人找回失物</p>
+                    </div>
+                    <a href="lost.html" class="hidden sm:flex items-center gap-1 text-primary font-medium hover:underline">
+                        查看全部
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+                </div>
+
+                <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-6" id="lostItemsGrid">
+                    <!-- 动态生成失物卡片 -->
+                </div>
+
+                <div class="text-center mt-10 sm:hidden">
+                    <a href="lost.html" class="inline-flex items-center gap-1 text-primary font-medium">
+                        查看全部
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+                </div>
+            </div>
+        </section>
+
+        <!-- 最新招领 -->
+        <section class="py-20 bg-white">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="flex justify-between items-end mb-10">
+                    <div>
+                        <h2 class="text-3xl font-bold text-slate-800 mb-2 font-display">最新招领</h2><div class="section-rule"></div>
+                        <p class="text-slate-500">查看好心人捡到的物品，看看有没有你丢失的东西</p>
+                    </div>
+                    <a href="found.html" class="hidden sm:flex items-center gap-1 text-primary font-medium hover:underline">
+                        查看全部
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+                </div>
+
+                <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-6" id="foundItemsGrid">
+                    <!-- 动态生成招领卡片 -->
+                </div>
+
+                <div class="text-center mt-10 sm:hidden">
+                    <a href="found.html" class="inline-flex items-center gap-1 text-primary font-medium">
+                        查看全部
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+                </div>
+            </div>
+        </section>
+
+        <!-- 功能特点 -->
+        <section class="py-20 bg-slate-50">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="text-center mb-12">
+                    <h2 class="text-3xl font-bold text-slate-800 mb-4 font-display">为什么选择寻物智联</h2>
+                    <p class="text-slate-500 max-w-2xl mx-auto leading-relaxed">融合AI技术与社区力量，打造最高效的失物招领平台</p>
+                </div>
+
+                <div class="grid md:grid-cols-3 gap-8">
+                    <div class="card-art card-hover p-8">
+                        <div class="w-14 h-14 mb-6 rounded-xl border-2 flex items-center justify-center" style="border-color:var(--ink);background:rgba(46,99,184,.2)">
+                            <i class="fa fa-eye text-2xl text-primary"></i>
+                        </div>
+                        <h3 class="text-xl font-semibold mb-3 text-slate-800 font-display">智能图像识别</h3>
+                        <p class="text-slate-500 leading-relaxed">基于深度学习的图像识别算法，自动提取物品特征，秒级匹配数据库中的相似物品。</p>
+                    </div>
+
+                    <div class="card-art card-hover p-8">
+                        <div class="w-14 h-14 mb-6 rounded-xl border-2 flex items-center justify-center" style="border-color:var(--ink);background:rgba(63,157,110,.22)">
+                            <i class="fa fa-map-marker text-2xl text-secondary"></i>
+                        </div>
+                        <h3 class="text-xl font-semibold mb-3 text-slate-800 font-display">地理位置匹配</h3>
+                        <p class="text-slate-500 leading-relaxed">结合丢失地点和时间进行智能推荐，优先展示附近区域的失物信息，提高找回概率。</p>
+                    </div>
+
+                    <div class="card-art card-hover p-8">
+                        <div class="w-14 h-14 mb-6 rounded-xl border-2 flex items-center justify-center" style="border-color:var(--ink);background:rgba(242,138,46,.22)">
+                            <i class="fa fa-users text-2xl text-accent"></i>
+                        </div>
+                        <h3 class="text-xl font-semibold mb-3 text-slate-800 font-display">社区互助网络</h3>
+                        <p class="text-slate-500 leading-relaxed">连接校园、社区、商圈等多个场景，汇聚好心人力量，共同构建互助友爱的社区。</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- ==================== 页脚 ==================== -->
+    <footer class="collage-footer bg-slate-900 text-slate-400 py-12">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="grid md:grid-cols-4 gap-8 mb-8">
+                <div>
+                    <div class="flex items-center space-x-2 mb-4">
+                        <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-secondary flex items-center justify-center">
+                            <i class="fa fa-search text-white"></i>
+                        </div>
+                        <span class="text-xl font-bold text-white font-display">寻物智联</span>
+                    </div>
+                    <p class="text-sm leading-relaxed">让每一件失物都能找到回家的路，用科技连接善意。</p>
+                </div>
+
+                <div>
+                    <h4 class="text-white font-semibold mb-4">快速链接</h4>
+                    <ul class="space-y-2 text-sm">
+                        <li><a href="index.html" class="hover:text-white transition-colors">首页</a></li>
+                        <li><a href="lost.html" class="hover:text-white transition-colors">失物列表</a></li>
+                        <li><a href="found.html" class="hover:text-white transition-colors">招领列表</a></li>
+                        <li><a href="publish.html" class="hover:text-white transition-colors">发布信息</a></li>
+                    </ul>
+                </div>
+
+                <div>
+                    <h4 class="text-white font-semibold mb-4">智能服务</h4>
+                    <ul class="space-y-2 text-sm">
+                        <li><a href="recognize.html" class="hover:text-white transition-colors">智能识别</a></li>
+                        <li><a href="profile.html" class="hover:text-white transition-colors">个人中心</a></li>
+                        <li><a href="login.html" class="hover:text-white transition-colors">登录 / 注册</a></li>
+                        <li><a href="feedback.html" class="hover:text-white transition-colors">意见反馈</a></li>
+                    </ul>
+                </div>
+
+                <div>
+                    <h4 class="text-white font-semibold mb-4">关于平台</h4>
+                    <p class="text-sm leading-relaxed mb-4">
+                        艺术学院 · 数字媒体专业课程项目<br>
+                        用技术与艺术，温暖每一件失物
+                    </p>
+                    <p class="text-sm">服务运行于本地服务器（端口 3000）</p>
+                </div>
+            </div>
+
+            <div class="border-t border-white/10 pt-8 flex flex-col md:flex-row justify-between items-center text-sm">
+                <p>© 2026 寻物智联. 保留所有权利.</p>
+                <div class="flex gap-6 mt-4 md:mt-0">
+                    <a href="#" class="hover:text-white transition-colors">隐私政策</a>
+                    <a href="#" class="hover:text-white transition-colors">用户协议</a>
+                    <a href="admin.html" class="hover:text-white transition-colors">管理员入口</a>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <!-- 物品详情弹窗 -->
+    <div id="itemModal" class="fixed inset-0 z-50 hidden items-center justify-center p-4">
+        <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" onclick="closeModal()"></div>
+        <div class="relative modal-art max-w-lg w-full max-h-[90vh] overflow-y-auto fade-in">
+            <button onclick="closeModal()" class="absolute top-4 right-4 w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center hover:bg-slate-200 transition-colors z-10">
+                <i class="fa fa-times text-slate-600"></i>
+            </button>
+            <div id="modalContent">
+            </div>
+        </div>
+    </div>
+
+    <script src="js/common.js"></script>
+    <script>
+        // ==================== 首页逻辑 ====================
+        async function renderLostItems() {
+            const grid = document.getElementById('lostItemsGrid');
+            const items = await DB.getLost();
+            grid.innerHTML = items.slice(0, 4).map(item => createItemCard(item)).join('');
+        }
+
+        async function renderFoundItems() {
+            const grid = document.getElementById('foundItemsGrid');
+            const items = await DB.getFound();
+            grid.innerHTML = items.slice(0, 4).map(item => createItemCard(item)).join('');
+        }
+
+        function animateValue(id, start, end, duration, suffix = '') {
+            const element = document.getElementById(id);
+            const range = end - start;
+            const startTime = performance.now();
+            function update(currentTime) {
+                const elapsed = currentTime - startTime;
+                const progress = Math.min(elapsed / duration, 1);
+                const easeProgress = 1 - Math.pow(1 - progress, 3);
+                const current = Math.floor(start + range * easeProgress);
+                element.textContent = current.toLocaleString() + suffix;
+                if (progress < 1) requestAnimationFrame(update);
+                else element.textContent = end.toLocaleString() + suffix;
+            }
+            requestAnimationFrame(update);
+        }
+
+        async function animateNumbers() {
+            const stats = await DB.getStats();
+            animateValue('stat1', 0, stats.total, 2000);
+            animateValue('stat2', 0, stats.recovered ?? stats.found ?? 0, 2000);
+            animateValue('stat3', 0, stats.rate, 2000, '%');
+        }
+
+        // 首页搜索：跳转到对应列表页并携带关键词
+        function goSearch() {
+            const kw = document.getElementById('searchInput').value.trim();
+            const url = kw ? 'lost.html?q=' + encodeURIComponent(kw) : 'lost.html';
+            location.href = url;
+        }
+
+        document.addEventListener('DOMContentLoaded', async function () {
+            const ok = await requireAuth();
+            if (!ok) return;
+            window.refreshAfterItemChange = async function () {
+                await Promise.all([renderLostItems(), renderFoundItems()]);
+                animateNumbers();
+            };
+            await Promise.all([renderLostItems(), renderFoundItems()]);
+            animateNumbers();
+        });
+    </script>
+</body>
+</html>
