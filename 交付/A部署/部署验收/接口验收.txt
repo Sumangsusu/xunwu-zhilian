@@ -1,0 +1,11 @@
+生产缺密钥、弱默认密钥和未接入的 CAS 配置均拒绝启动
+GET /health 返回 HTTP 200 和 JSON
+演示环境无默认账号，管理员显式授权，Cookie 和来源检查生效
+发布防冒领招领、MIME 与体积校验、图片文件下载和坐标双写
+普通账号详情打码，错答被拒、答对解锁，热力图出现后由管理员结案
+实测格式样表坐标迁移可重跑，SQLite 在线备份可在主库删除后完整恢复
+HTTPS 配置签发 Secure 会话 Cookie
+旧库增列、坐标回填和演示账号清理均通过，启事与普通用户保留
+本地 npm start：GET /health => HTTP 200 {"status":"ok"}
+HTTP 与 HTTPS 两套 Compose 配置校验通过。
+Docker Desktop 启动超时，干净 Ubuntu 启动与容器卷重建仍需实测。
