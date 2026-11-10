@@ -195,6 +195,19 @@ lost.html
 
                         <!-- 结果 -->
                         <div id="recognitionResult" class="hidden">
+                            <!-- B3：本地模型加载失败的友好降级提示 -->
+                            <div id="modelErrorNotice" class="hidden mb-5 p-4 rounded-xl border-2 border-amber-200 bg-amber-50 text-amber-800">
+                                <div class="flex items-start gap-2">
+                                    <i class="fa fa-exclamation-triangle mt-0.5"></i>
+                                    <div class="text-sm">
+                                        <div class="font-semibold mb-1">本地识别模型未能加载</div>
+                                        <p class="text-xs leading-relaxed">页面仍可正常使用：主色提取与库内匹配照常工作，物品类型和置信度暂不显示，也不会伪造识别结果。
+                                        常见原因是模型文件缺失，请确认 <code class="px-1 bg-white/70 rounded">vendor/tf.min.js</code> 与
+                                        <code class="px-1 bg-white/70 rounded">models/mobilenet/</code> 已随站点部署，然后刷新页面重试；
+                                        也可以直接手动填写后带入发布页。</p>
+                                    </div>
+                                </div>
+                            </div>
                             <div id="itemTags" class="flex flex-wrap gap-2 mb-6"></div>
                             <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5">
                                 <div class="p-4 bg-slate-50 rounded-xl border-2 border-slate-100">
@@ -227,6 +240,13 @@ lost.html
                                     <span id="matchCount" class="text-xs text-secondary font-medium"></span>
                                 </div>
                                 <div id="matchResults" class="space-y-2 max-h-64 overflow-y-auto"></div>
+                            </div>
+                            <!-- B3：识别结果一键带入发布页（只填草稿，不自动提交） -->
+                            <div class="mt-5 pt-4 border-t-2 border-dashed border-slate-200">
+                                <button type="button" id="sendToPublishBtn" onclick="sendToPublish()" class="btn-glow w-full inline-flex items-center justify-center gap-2 px-5 py-3 bg-gradient-to-r from-primary to-secondary text-white rounded-xl font-semibold">
+                                    <i class="fa fa-paper-plane"></i>一键带入发布页
+                                </button>
+                                <p class="text-xs text-slate-400 mt-2 text-center">仅预填类别 / 主色 / 特征草稿，需你核对并点击「立即发布」才会入库</p>
                             </div>
                         </div>
                     </div>
@@ -293,6 +313,7 @@ lost.html
     </div>
 
     <script src="js/common.js"></script>
+    <script src="js/recognize-draft.js"></script>
     <!-- 本地化的 AI 识别模型（已随项目打包，无需外网 CDN，校内网可用） -->
     <script src="vendor/tf.min.js"></script>
     <script src="vendor/imagenet_labels.js"></script>
@@ -390,10 +411,12 @@ lost.html
                         try {
                             recognizeResult = await realRecognition(document.getElementById('imagePreview'));
                         } catch (err) {
+                            // B3：识别异常时给出可操作的降级说明，不伪造类别与置信度
                             recognizeResult = {
-                                type: '（识别失败）', color: '未知', colorHex: '#888888',
-                                category: '其他物品', confidence: 0,
-                                features: ['识别失败：' + (err && err.message ? err.message : '未知错误')]
+                                type: '（识别未完成）', color: '未知', colorHex: '#888888',
+                                category: '其他物品', confidence: null,
+                                features: [], modelError: true,
+                                modelErrorDetail: (err && err.message) ? err.message : '未知错误'
                             };
                         }
                         progressDiv.classList.add('hidden');
@@ -697,8 +720,25 @@ lost.html
             };
         }
 
+        // B3：一键带入发布页。只把草稿写进 sessionStorage 再跳转，
+        // 由发布页负责预填；此处绝不调用发布接口，用户不点「立即发布」就不会入库。
+        function sendToPublish() {
+            const result = window._lastRecognitionResult;
+            if (!result) { alert('请先完成一次识别'); return; }
+            const draft = window.RecognizeDraft.build(result);
+            try {
+                sessionStorage.setItem(window.RecognizeDraft.DRAFT_KEY, JSON.stringify(draft));
+            } catch (e) {
+                alert('浏览器存储不可用，无法带入发布页，请手动填写。');
+                return;
+            }
+            location.href = 'publish.html?from=recognize';
+        }
+
         async function showRecognitionResult(result) {
             window._lastRecognitionResult = result;
+            const modelNotice = document.getElementById('modelErrorNotice');
+            if (modelNotice) modelNotice.classList.toggle('hidden', !result.modelError);
             document.getElementById('itemTags').innerHTML = result.features.map(f =>
                 `<span class="px-3 py-1 bg-primary/10 text-primary text-sm rounded-full font-medium">${f}</span>`
             ).join('');
