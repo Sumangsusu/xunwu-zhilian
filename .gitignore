@@ -13,3 +13,12 @@ node_modules/
 
 # 本地记忆/工具目录
 .workbuddy/
+
+# 本地环境配置（含密钥，绝不入库；.env.example 是模板，保留）
+.env
+.env.local
+.env.*.local
+
+# 运行时上传产物与本地备份
+失物招领/public/uploads/
+失物招领/public/vendor/*.bak

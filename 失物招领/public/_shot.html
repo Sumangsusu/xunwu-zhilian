@@ -1,13 +1,13 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
-<head><meta charset="UTF-8"><title>shot</title></head>
+<head><meta charset="UTF-8"><title>shot</title><script src="js/app-base.js"></script></head>
 <body>
 <script>
 (function () {
-  var to = new URLSearchParams(location.search).get('to') || '/';
+  var to = new URLSearchParams(location.search).get('to') || apiUrl('');
   try {
     var xhr = new XMLHttpRequest();
-    xhr.open('POST', '/api/auth/login', false);
+    xhr.open('POST', apiUrl('/api/auth/login'), false);
     xhr.setRequestHeader('Content-Type', 'application/json');
     xhr.send(JSON.stringify({ username: 'demo', password: '123456' }));
     var d = JSON.parse(xhr.responseText);

@@ -4,11 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>智能识别 - 寻物智联</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <script src="js/app-base.js"></script>
+    <script src="vendor/tailwind.js"></script>
+    <link href="vendor/font-awesome.min.css" rel="stylesheet">
     <script>
         tailwind.config = {
             theme: {
@@ -198,11 +196,17 @@ lost.html
                         <!-- 结果 -->
                         <div id="recognitionResult" class="hidden">
                             <div id="itemTags" class="flex flex-wrap gap-2 mb-6"></div>
-                            <div class="grid grid-cols-2 gap-4 mb-5">
+                            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5">
+                                <div class="p-4 bg-slate-50 rounded-xl border-2 border-slate-100">
+                                    <div class="text-xs text-slate-400 mb-1">物品类型</div>
+                                    <div class="font-bold text-slate-800"><span id="itemType">-</span></div>
+                                    <div class="text-xs text-secondary mt-1">识别置信度 <span id="typeConfidence">-</span></div>
+                                    <div class="text-[11px] text-slate-400 mt-1" id="itemRawType"></div>
+                                </div>
                                 <div class="p-4 bg-slate-50 rounded-xl border-2 border-slate-100">
                                     <div class="text-xs text-slate-400 mb-1">物品分类</div>
-                                    <div class="font-bold text-slate-800"><span id="itemType">-</span></div>
-                                    <div class="text-xs text-secondary mt-1">置信度 <span id="typeConfidence">-</span></div>
+                                    <div class="font-bold text-slate-800"><span id="itemCategory">-</span></div>
+                                    <div class="text-xs text-slate-400 mt-1">用于库内匹配</div>
                                 </div>
                                 <div class="p-4 bg-slate-50 rounded-xl border-2 border-slate-100">
                                     <div class="text-xs text-slate-400 mb-1">识别主色</div>
@@ -210,6 +214,7 @@ lost.html
                                         <span id="colorPreview" class="w-6 h-6 rounded-full border-2 border-[var(--ink)] inline-block" style="background-color:#666"></span>
                                         <span class="font-bold text-slate-800" id="itemColor">-</span>
                                     </div>
+                                    <div class="text-xs text-slate-400 mt-1">主色占比 <span id="colorConfidence">-</span></div>
                                 </div>
                             </div>
                             <div class="mb-5">
@@ -288,6 +293,9 @@ lost.html
     </div>
 
     <script src="js/common.js"></script>
+    <!-- 本地化的 AI 识别模型（已随项目打包，无需外网 CDN，校内网可用） -->
+    <script src="vendor/tf.min.js"></script>
+    <script src="vendor/imagenet_labels.js"></script>
     <script>
         // ==================== 智能识别逻辑 ====================
 
@@ -356,9 +364,9 @@ lost.html
 
             const steps = [
                 { progress: 20, text: '正在加载图像...' },
-                { progress: 40, text: '提取图像特征...' },
-                { progress: 60, text: '分析物品属性...' },
-                { progress: 80, text: '智能匹配数据库...' },
+                { progress: 40, text: '加载本地 AI 识别模型...' },
+                { progress: 60, text: '分析物品类型与主色...' },
+                { progress: 80, text: '与数据库智能匹配...' },
                 { progress: 100, text: '识别完成！' }
             ];
 
@@ -376,7 +384,19 @@ lost.html
                         placeholder.classList.add('hidden');
                         resultDiv.classList.remove('hidden');
 
-                        const recognizeResult = simulateRecognition();
+                        progressText.textContent = 'AI 正在识别图像内容...';
+                        progressDiv.classList.remove('hidden');
+                        let recognizeResult;
+                        try {
+                            recognizeResult = await realRecognition(document.getElementById('imagePreview'));
+                        } catch (err) {
+                            recognizeResult = {
+                                type: '（识别失败）', color: '未知', colorHex: '#888888',
+                                category: '其他物品', confidence: 0,
+                                features: ['识别失败：' + (err && err.message ? err.message : '未知错误')]
+                            };
+                        }
+                        progressDiv.classList.add('hidden');
                         await showRecognitionResult(recognizeResult);
 
                         setTimeout(() => {
@@ -388,21 +408,292 @@ lost.html
             }, 600);
         }
 
-        function simulateRecognition() {
-            const types = ['钱包', '耳机', '钥匙', '手机', '雨伞', '眼镜', '证件'];
-            const colors = ['黑色', '白色', '蓝色', '红色', '棕色', '银色'];
-            const categories = ['箱包类', '电子数码', '钥匙', '证件文件', '其他物品', '衣物配饰'];
+        // ==================== 真实图像识别（本地 TensorFlow.js + MobileNet 图模型）====================
+        // 模型与标签均已本地化打包（public/vendor、public/models），无需外网，校内网可用。
+        // 注意：本模型为 TFHub MobileNetV2 图模型，输入为「原始像素 [0,255]」，内部已用 (x-127.5)/127.5 做归一化。
+        // 因此不使用 mobilenet.min.js 的 classify() 包装（它会施加自己的 mean/std 归一化并假定输入为 [0,1]，
+        // 与本模型不符，会在内部抛 "Cannot read properties of undefined (reading 'toFixed')"，导致「暂不可用」）。
+        // 这里直接 loadGraphModel + 自行 softmax + 中文标签，确保真实推理、杜绝随机模拟。
+        let _mobilenetModel = null;
 
-            const randomType = types[Math.floor(Math.random() * types.length)];
-            const randomColor = colors[Math.floor(Math.random() * colors.length)];
-            const randomCategory = categories[Math.floor(Math.random() * categories.length)];
+        // ImageNet 类别关键字 -> [中文物品名, 数据库分类]（具体词放前面，避免被泛词误命中）
+        const IMAGENET_MAP = [
+            ['wallet', '钱包', '箱包类'],
+            ['purse', '手提包', '箱包类'],
+            ['handbag', '手提包', '箱包类'],
+            ['backpack', '背包', '箱包类'],
+            ['knapsack', '背包', '箱包类'],
+            ['book bag', '背包', '箱包类'],
+            ['plastic bag', '购物袋', '箱包类'],
+            ['shopping bag', '购物袋', '箱包类'],
+            ['money bag', '钱包', '箱包类'],
+            ['cellular telephone', '手机', '电子数码'],
+            ['mobile phone', '手机', '电子数码'],
+            ['cellphone', '手机', '电子数码'],
+            ['cellular phone', '手机', '电子数码'],
+            ['ipod', '音乐播放器', '电子数码'],
+            ['laptop', '笔记本电脑', '电子数码'],
+            ['notebook computer', '笔记本电脑', '电子数码'],
+            ['computer keyboard', '键盘', '电子数码'],
+            ['keypad', '键盘', '电子数码'],
+            ['computer mouse', '鼠标', '电子数码'],
+            ['mouse', '鼠标', '电子数码'],
+            ['earphones', '耳机', '电子数码'],
+            ['headphones', '耳机', '电子数码'],
+            ['earbuds', '耳机', '电子数码'],
+            ['digital watch', '手表', '电子数码'],
+            ['wristwatch', '手表', '电子数码'],
+            ['watch', '手表', '电子数码'],
+            ['remote', '遥控器', '电子数码'],
+            ['remote control', '遥控器', '电子数码'],
+            ['camera', '相机', '电子数码'],
+            ['cellphone', '手机', '电子数码'],
+            ['battery', '电池', '电子数码'],
+            ['flashlight', '手电筒', '电子数码'],
+            ['torch', '手电筒', '电子数码'],
+            ['sunglass', '太阳镜', '衣物配饰'],
+            ['shades', '太阳镜', '衣物配饰'],
+            ['dark glasses', '太阳镜', '衣物配饰'],
+            ['eyeglasses', '眼镜', '衣物配饰'],
+            ['glasses', '眼镜', '衣物配饰'],
+            ['cardigan', '衣物', '衣物配饰'],
+            ['jersey', '衣物', '衣物配饰'],
+            ['t-shirt', '衣物', '衣物配饰'],
+            ['tee shirt', '衣物', '衣物配饰'],
+            ['suit', '衣物', '衣物配饰'],
+            ['umbrella', '雨伞', '其他物品'],
+            ['water bottle', '水杯', '其他物品'],
+            ['pop bottle', '水杯', '其他物品'],
+            ['coffee mug', '杯子', '其他物品'],
+            ['cup', '杯子', '其他物品'],
+            ['mug', '杯子', '其他物品'],
+            ['book jacket', '书本', '其他物品'],
+            ['book cover', '书本', '其他物品'],
+            ['comic book', '书本', '其他物品'],
+            ['book', '书本', '其他物品'],
+            ['notebook', '笔记本', '其他物品'],
+            ['notepad', '笔记本', '其他物品'],
+            ['envelope', '信封', '证件文件'],
+            ['mailbag', '邮包', '证件文件'],
+            ['postbag', '邮包', '证件文件'],
+            ['playing card', '卡片', '证件文件'],
+            ['card', '卡片', '证件文件'],
+            ['teddy', '毛绒玩具', '其他物品'],
+            ['chain', '链条', '其他物品'],
+            ['combination lock', '锁', '其他物品'],
+            ['padlock', '锁', '其他物品'],
+            ['lipstick', '化妆品', '其他物品'],
+            ['perfume', '化妆品', '其他物品'],
+            ['hair spray', '化妆品', '其他物品'],
+            ['sunscreen', '化妆品', '其他物品'],
+            ['lighter', '打火机', '其他物品'],
+            ['candle', '蜡烛', '其他物品'],
+            ['table lamp', '灯具', '其他物品'],
+            ['desk lamp', '灯具', '其他物品'],
+            ['lamp', '灯具', '其他物品'],
+            ['spotlight', '灯具', '其他物品'],
+            ['pencil box', '文具', '其他物品'],
+            ['ruler', '文具', '其他物品'],
+            ['stapler', '文具', '其他物品'],
+            ['scissors', '文具', '其他物品'],
+            ['fountain pen', '笔', '其他物品'],
+            ['ballpoint', '笔', '其他物品'],
+            ['rubber eraser', '文具', '其他物品'],
+            ['backpack', '背包', '箱包类']
+        ];
+
+        // 主色提取 v3：k-means 聚类找主色 + HSV 色相归类（比 RGB 欧氏距离更准，避免深蓝被判黑/绿）
+        function rgbToHsv(r, g, b) {
+            r /= 255; g /= 255; b /= 255;
+            const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+            let h = 0;
+            if (d !== 0) {
+                if (max === r) h = ((g - b) / d) % 6;
+                else if (max === g) h = (b - r) / d + 2;
+                else h = (r - g) / d + 4;
+                h = Math.round(h * 60); if (h < 0) h += 360;
+            }
+            const s = max === 0 ? 0 : d / max, v = max;
+            return [h, s, v];
+        }
+        // 把 RGB 主色归到数据库使用的 11 个中文颜色名（黑/白/银/灰/红/蓝/棕/绿/黄/粉/紫）
+        function classifyColor(rgb) {
+            const [h, s, v] = rgbToHsv(rgb[0], rgb[1], rgb[2]);
+            if (s < 0.18) { if (v > 0.82) return '白色'; if (v > 0.55) return '银色'; if (v > 0.28) return '灰色'; return '黑色'; }
+            if (v < 0.55 && h >= 15 && h <= 55) return '棕色';
+            if (h < 15 || h >= 345) return '红色';
+            if (h < 70) return '黄色';
+            if (h < 170) return '绿色';
+            if (h < 255) return '蓝色';
+            if (h < 315) return '紫色';
+            if (h < 345) return '粉色';
+            return '红色';
+        }
+
+        // 直接加载本地 MobileNetV2 图模型。图模型内置 TFHub 预处理（输入原始像素 [0,255]），无需额外归一化。
+        // 用 CPU 后端：FusedBatchNorm 等算子在 CPU 上稳定（已验证），规避个别浏览器 WebGL 算子缺失风险。
+        let _tfBackendReady = false;
+        async function ensureBackend() {
+            if (_tfBackendReady) return;
+            try { await tf.setBackend('cpu'); } catch (e) { /* 失败则退回默认后端 */ }
+            await tf.ready();
+            _tfBackendReady = true;
+        }
+        async function loadMobilenet() {
+            if (_mobilenetModel) return _mobilenetModel;
+            if (typeof tf === 'undefined') {
+                throw new Error('AI 识别模型脚本未加载，请检查 public/vendor/tf.min.js');
+            }
+            await ensureBackend();
+            _mobilenetModel = await tf.loadGraphModel('models/mobilenet/model.json');
+            return _mobilenetModel;
+        }
+        function softmax(arr) { const m = Math.max.apply(null, arr); const e = arr.map(x => Math.exp(x - m)); const s = e.reduce((a, b) => a + b, 0); return e.map(x => x / s); }
+        function topK(probs, k) { return probs.map((p, i) => ({ i, p })).sort((a, b) => b.p - a.p).slice(0, k); }
+        // 真实推理：原始像素 -> 模型内部预处理 -> softmax 取 Top5（非随机）
+        async function predictImage(imgEl) {
+            const model = await loadMobilenet();
+            const logits = tf.tidy(() => {
+                let img = tf.browser.fromPixels(imgEl, 3).toFloat();
+                img = tf.image.resizeBilinear(img, [224, 224]);
+                const batched = img.expandDims(0);
+                return model.predict(batched);
+            });
+            const data = Array.from(await logits.data());
+            logits.dispose();
+            const probs = softmax(data);
+            const top = topK(probs, 5);
+            const labels = (typeof IMAGENET_LABELS !== 'undefined' && IMAGENET_LABELS) ? IMAGENET_LABELS : null;
+            return top.map(t => ({ className: labels ? labels[t.i] : ('class_' + t.i), probability: t.p }));
+        }
+
+        // 将模型预测（英文 ImageNet 标签）映射到中文物品 + 数据库分类
+        function mapPredictions(predictions) {
+            const hits = [];
+            for (const p of predictions) {
+                const lower = (p.className || '').toLowerCase();
+                for (const [kw, type, category] of IMAGENET_MAP) {
+                    if (lower.includes(kw)) {
+                        hits.push({ type, category, prob: p.probability, raw: p.className.split(',')[0] });
+                        break;
+                    }
+                }
+                if (hits.length >= 3) break;
+            }
+            if (hits.length === 0) {
+                const top = predictions[0];
+                return {
+                    primary: { type: top.className.split(',')[0], category: '其他物品', prob: top.probability, raw: top.className.split(',')[0] },
+                    candidates: []
+                };
+            }
+            return { primary: hits[0], candidates: hits.slice(1) };
+        }
+
+        // 通过 Canvas 真实提取图像主色（v3：中心裁剪 + 剔除近白/近黑背景 + k-means 聚类取主色 + HSV 归类，非随机）
+        // 真实场景多为「白底商品图」或「带 App 界面的截图」，直接取全图主色会被背景（白/浅色）淹没。
+        // 做法：① 只取图像中心 60% 区域（避开四周 UI 边框/水印）；② 统计时剔除近白、近黑像素（通常是背景）；
+        //      ③ 若剔除后前景像素过少（物体本身接近白/黑），则回退到全图；④ 对前景做 k-means(k=3) 取最大簇为主色，
+        //         再用 HSV 色相归类到中文颜色名（比 RGB 欧氏距离更准，深蓝不会被误判为黑/绿）。
+        function extractDominantColor(imgEl) {
+            const srcW = imgEl.naturalWidth || imgEl.width || 300;
+            const srcH = imgEl.naturalHeight || imgEl.height || 300;
+            const cw = Math.max(1, Math.round(srcW * 0.6));
+            const ch = Math.max(1, Math.round(srcH * 0.6));
+            const sx = Math.round((srcW - cw) / 2);
+            const sy = Math.round((srcH - ch) / 2);
+
+            const size = 160;
+            const canvas = document.createElement('canvas');
+            canvas.width = size; canvas.height = size;
+            const ctx = canvas.getContext('2d');
+            try {
+                ctx.drawImage(imgEl, sx, sy, cw, ch, 0, 0, size, size);
+            } catch (e) {
+                ctx.drawImage(imgEl, 0, 0, size, size);
+            }
+            const data = ctx.getImageData(0, 0, size, size).data;
+
+            const isNearWhite = (r, g, b) => r > 225 && g > 225 && b > 225;
+            const isNearBlack = (r, g, b) => r < 28 && g < 28 && b < 28;
+
+            // 收集前景像素（剔除近白/近黑背景），不足则回退全图
+            const samples = [];
+            for (let i = 0; i < data.length; i += 4) {
+                const r = data[i], g = data[i + 1], b = data[i + 2], a = data[i + 3];
+                if (a < 128) continue;
+                if (isNearWhite(r, g, b) || isNearBlack(r, g, b)) continue;
+                samples.push([r, g, b]);
+            }
+            let use = samples;
+            if (use.length < 30) {
+                use = [];
+                for (let i = 0; i < data.length; i += 4) {
+                    const r = data[i], g = data[i + 1], b = data[i + 2], a = data[i + 3];
+                    if (a < 128) continue;
+                    use.push([r, g, b]);
+                }
+            }
+            if (use.length === 0) return { name: '未知', hex: '#888888', confidence: 0 };
+
+            // k-means(k=3) 取最大簇作为主色，比「单一最频繁色块」更稳定
+            const k = 3;
+            const centroids = [];
+            for (let i = 0; i < k; i++) centroids.push(use[Math.floor(i * (use.length / k))].slice());
+            const assign = new Array(use.length).fill(0);
+            for (let iter = 0; iter < 12; iter++) {
+                const sums = Array.from({ length: k }, () => [0, 0, 0, 0]);
+                for (let i = 0; i < use.length; i++) {
+                    const p = use[i]; let best = 0, bd = Infinity;
+                    for (let c = 0; c < k; c++) {
+                        const d = (p[0] - centroids[c][0]) ** 2 + (p[1] - centroids[c][1]) ** 2 + (p[2] - centroids[c][2]) ** 2;
+                        if (d < bd) { bd = d; best = c; }
+                    }
+                    assign[i] = best; const s = sums[best]; s[0] += p[0]; s[1] += p[1]; s[2] += p[2]; s[3]++;
+                }
+                for (let c = 0; c < k; c++) { const s = sums[c]; if (s[3] > 0) centroids[c] = [Math.round(s[0] / s[3]), Math.round(s[1] / s[3]), Math.round(s[2] / s[3])]; }
+            }
+            const counts = new Array(k).fill(0);
+            for (let i = 0; i < assign.length; i++) counts[assign[i]]++;
+            let dom = 0; for (let c = 1; c < k; c++) if (counts[c] > counts[dom]) dom = c;
+            const avg = centroids[dom];
+
+            const hex = '#' + avg.map(v => v.toString(16).padStart(2, '0')).join('');
+            return { name: classifyColor(avg), hex, confidence: Math.round((counts[dom] / use.length) * 100) };
+        }
+
+        // 真实识别主入口：返回 {type, rawType, color, colorHex, category, confidence, colorConfidence, features, modelError}
+        async function realRecognition(imgEl) {
+            const colorInfo = extractDominantColor(imgEl);
+            let primary = null, candidates = [], modelError = null;
+
+            try {
+                const predictions = await predictImage(imgEl);
+                const mapped = mapPredictions(predictions);
+                primary = mapped.primary;
+                candidates = mapped.candidates;
+            } catch (e) {
+                modelError = e && e.message ? e.message : '模型加载失败';
+                primary = { type: '（物体识别暂不可用）', category: '其他物品', prob: 0, raw: '' };
+            }
+
+            const confidence = Math.round((primary.prob || 0) * 100);
+            // 模型可用时展示真实置信度；模型未加载时绝不伪造数据，置信度置空显示「—」
+            const typeConfidence = modelError ? null : confidence;
+            // 模型未加载时，标签只保留已可靠提取的颜色，避免重复堆砌「暂不可用」字样
+            const features = modelError ? [colorInfo.name] : [colorInfo.name, primary.type, ...candidates.map(c => c.type)];
 
             return {
-                type: randomType,
-                color: randomColor,
-                category: randomCategory,
-                confidence: Math.floor(Math.random() * 20) + 80,
-                features: [randomColor, randomType, '日常用品']
+                type: primary.type,
+                rawType: primary.raw || '',
+                color: colorInfo.name,
+                colorHex: colorInfo.hex,
+                category: primary.category,
+                confidence: typeConfidence,
+                colorConfidence: colorInfo.confidence,
+                features,
+                modelError,
+                modelErrorDetail: modelError
             };
         }
 
@@ -412,15 +703,17 @@ lost.html
                 `<span class="px-3 py-1 bg-primary/10 text-primary text-sm rounded-full font-medium">${f}</span>`
             ).join('');
 
-            document.getElementById('itemType').textContent = result.category;
-            document.getElementById('typeConfidence').textContent = result.confidence + '%';
+            // 物品类型（如「雨伞」）独立展示
+            document.getElementById('itemType').textContent = result.type;
+            document.getElementById('typeConfidence').textContent = (result.confidence != null ? result.confidence + '%' : '—');
+            document.getElementById('itemRawType').textContent = (!result.modelError && result.rawType) ? ('模型判定：' + result.rawType) : (result.modelError ? ('（识别模型未加载：' + (result.modelErrorDetail || '未知错误').slice(0, 48) + '）') : '');
+            // 物品分类（用于库内匹配的数据库分类）
+            document.getElementById('itemCategory').textContent = result.category;
+            // 识别主色 + 主色占比
             document.getElementById('itemColor').textContent = result.color;
+            document.getElementById('colorConfidence').textContent = (result.colorConfidence != null ? result.colorConfidence : 0) + '%';
 
-            const colorMap = {
-                '黑色': '#1a1a1a', '白色': '#ffffff', '蓝色': '#3B82F6',
-                '红色': '#EF4444', '棕色': '#92400E', '银色': '#94A3B8'
-            };
-            document.getElementById('colorPreview').style.backgroundColor = colorMap[result.color] || '#666';
+            document.getElementById('colorPreview').style.backgroundColor = result.colorHex || '#666';
             document.getElementById('itemFeatures').textContent = result.features.join('、');
 
             const matches = await DB.matchByFeatures({

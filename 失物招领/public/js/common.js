@@ -1,24 +1,24 @@
 // ==================== 寻物智联 公共脚本 ====================
 // 多页面共享：API 客户端、账号系统、导航、渲染、详情弹窗
 
-const TOKEN_KEY = 'xunwu_token';
+// app-base.js 提供统一站点基址；若某页面漏引，此处做同源兜底，避免整站脚本报错。
+if (typeof window.apiUrl !== 'function') {
+    window.APP_BASE = '/';
+    window.API_BASE = '/';
+    window.apiUrl = function (p) { return String(p == null ? '' : p); };
+}
+
 let currentUser = null;
 
 // ---------------- API 客户端 ----------------
+// 会话基于后端写入的 HttpOnly Cookie，前端不再存储令牌；fetch 携带 same-origin 凭据即可。
 const api = {
-    token: localStorage.getItem(TOKEN_KEY),
-    setToken(token) {
-        this.token = token;
-        if (token) localStorage.setItem(TOKEN_KEY, token);
-        else localStorage.removeItem(TOKEN_KEY);
-    },
     async request(method, url, body) {
         const headers = { 'Content-Type': 'application/json' };
-        if (this.token) headers['Authorization'] = 'Bearer ' + this.token;
-
-        const resp = await fetch(url, {
+        const resp = await fetch(apiUrl(url), {
             method,
             headers,
+            credentials: 'same-origin',
             body: body ? JSON.stringify(body) : undefined
         });
 
@@ -26,7 +26,12 @@ const api = {
         try { data = await resp.json(); } catch (e) { data = null; }
 
         if (resp.status === 401) {
-            if (this.token) { this.setToken(null); currentUser = null; }
+            currentUser = null;
+            // 系统使用统一认证（CAS）时，直接跳转到学校登录页重新认证
+            if (data && data.casLoginUrl) {
+                window.location.href = data.casLoginUrl;
+                return;
+            }
             throw new Error((data && data.message) || '登录已失效，请重新登录');
         }
         if (!resp.ok) {
@@ -43,12 +48,16 @@ const api = {
 // ---------------- 用户账号系统 ----------------
 const UserDB = {
     async init() {
-        if (!api.token) return false;
         try {
             const data = await api.get('/api/auth/me');
+            if (!data || !data.success || !data.user) {
+                currentUser = null;
+                return false;
+            }
             currentUser = data.user;
             return true;
         } catch (e) {
+            currentUser = null;
             return false;
         }
     },
@@ -64,9 +73,8 @@ const UserDB = {
 
     async login(username, password) {
         try {
-            const data = await api.post('/api/auth/login', { username, password });
-            api.setToken(data.token);
-            currentUser = data.user;
+            await api.post('/api/auth/login', { username, password });
+            await this.init(); // 会话 Cookie 已由后端写入，刷新当前用户
             return { success: true };
         } catch (e) {
             return { success: false, message: e.message };
@@ -85,8 +93,14 @@ const UserDB = {
     },
 
     logout() {
-        api.setToken(null);
-        currentUser = null;
+        fetch(apiUrl('/api/auth/logout'), { method: 'POST', credentials: 'same-origin' })
+            .then(r => r.json())
+            .then(d => {
+                currentUser = null;
+                if (d && d.casLogoutUrl) { window.location.href = d.casLogoutUrl; }
+                else { window.location.href = 'login.html'; }
+            })
+            .catch(() => { window.location.href = 'login.html'; });
     },
 
     getCurrent() { return currentUser; },
@@ -383,7 +397,7 @@ async function submitQuiz(itemId) {
     }
 
     try {
-        const resp = await fetch('/api/items/' + itemId + '/verify', {
+        const resp = await fetch(apiUrl('/api/items/' + itemId + '/verify'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ answers })

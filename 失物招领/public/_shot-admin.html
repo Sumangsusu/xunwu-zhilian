@@ -1,12 +1,12 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
-<head><meta charset="UTF-8"><title>shot-admin</title></head>
+<head><meta charset="UTF-8"><title>shot-admin</title><script src="js/app-base.js"></script></head>
 <body>
 <script>
 (function () {
   try {
     var xhr = new XMLHttpRequest();
-    xhr.open('POST', '/api/auth/login', false);
+    xhr.open('POST', apiUrl('/api/auth/login'), false);
     xhr.setRequestHeader('Content-Type', 'application/json');
     xhr.send(JSON.stringify({ username: 'admin', password: 'admin123' }));
     var d = JSON.parse(xhr.responseText);
@@ -17,7 +17,7 @@
     document.body.innerHTML = 'LOGIN FAILED';
     return;
   }
-  location.href = '/admin';
+  location.href = apiUrl('admin');
 })();
 </script>
 </body>
