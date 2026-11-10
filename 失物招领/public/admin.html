@@ -4,11 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>寻物智联 · 管理后台</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <script src="js/app-base.js"></script>
+    <script src="vendor/tailwind.js"></script>
+    <link href="vendor/font-awesome.min.css" rel="stylesheet">
     <script>
         tailwind.config = {
             theme: {
@@ -317,17 +315,17 @@
     </div>
 
 <script>
-    const TOKEN_KEY = 'xunwu_admin_token';
-    let token = localStorage.getItem(TOKEN_KEY);
-
+    // app-base.js 提供统一站点基址；管理端不引入 common.js，这里单独兜底。
+    if (typeof window.apiUrl !== 'function') {
+        window.APP_BASE = '/';
+        window.API_BASE = '/';
+        window.apiUrl = function (p) { return String(p == null ? '' : p); };
+    }
     async function api(path, options = {}) {
         const headers = { 'Content-Type': 'application/json' };
-        if (token) headers['Authorization'] = 'Bearer ' + token;
-        const resp = await fetch(path, { ...options, headers, cache: 'no-store' });
+        const resp = await fetch(apiUrl(path), { ...options, headers, credentials: 'same-origin', cache: 'no-store' });
         const data = await resp.json().catch(() => ({}));
         if (resp.status === 401) {
-            localStorage.removeItem(TOKEN_KEY);
-            token = null;
             showLogin();
             throw new Error(data.message || '登录已失效');
         }
@@ -338,6 +336,13 @@
         if (!resp.ok) throw new Error(data.message || '请求失败');
         return data;
     }
+
+    // 读取登录方式（CAS 是否启用）
+    let __casEnabled = false;
+    fetch(apiUrl('/api/auth/config'), { credentials: 'same-origin' })
+        .then(r => r.json())
+        .then(d => { __casEnabled = !!(d && d.casEnabled); })
+        .catch(() => {});
 
     function showLogin() {
         document.getElementById('loginView').classList.remove('hidden');
@@ -520,15 +525,17 @@
 
     document.getElementById('loginForm').addEventListener('submit', async function(e) {
         e.preventDefault();
+        if (__casEnabled) { window.location.href = apiUrl('/api/auth/cas/login'); return; }
         const btn = document.getElementById('loginBtn');
         const errEl = document.getElementById('loginError');
         errEl.classList.add('hidden');
         btn.disabled = true;
         btn.textContent = '登录中...';
         try {
-            const res = await fetch('/api/auth/login', {
+            const res = await fetch(apiUrl('/api/auth/login'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
                 body: JSON.stringify({
                     username: document.getElementById('adminUser').value.trim(),
                     password: document.getElementById('adminPass').value
@@ -539,8 +546,6 @@
             if (data.user.role !== 'admin') {
                 throw new Error('该账号不是管理员，无权进入后台');
             }
-            token = data.token;
-            localStorage.setItem(TOKEN_KEY, token);
             document.getElementById('adminName').textContent = data.user.username;
             showAdmin();
         } catch (err) {
@@ -678,9 +683,10 @@
     });
 
     function logout() {
-        localStorage.removeItem(TOKEN_KEY);
-        token = null;
-        showLogin();
+        fetch(apiUrl('/api/auth/logout'), { method: 'POST', credentials: 'same-origin' })
+            .then(r => r.json())
+            .then(d => { if (d && d.casLogoutUrl) window.location.href = d.casLogoutUrl; else showLogin(); })
+            .catch(() => showLogin());
     }
 
     // ==================== 添加管理员 ====================

@@ -4,11 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>发布信息 - 寻物智联</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <script src="js/app-base.js"></script>
+    <script src="vendor/tailwind.js"></script>
+    <link href="vendor/font-awesome.min.css" rel="stylesheet">
     <script>
         tailwind.config = {
             theme: {
@@ -150,6 +148,17 @@ profile.html
                     </div>
 
                     <form id="publishForm" class="space-y-6">
+                        <!-- B3：智能识别草稿提示（只预填，不自动提交） -->
+                        <div id="recognizeDraftNotice" class="hidden p-4 rounded-xl border-2 border-blue-200 bg-blue-50 text-blue-800">
+                            <div class="flex items-start gap-2 text-sm">
+                                <i class="fa fa-magic mt-0.5"></i>
+                                <div class="flex-1">
+                                    <span class="font-semibold">已带入智能识别结果</span><span id="recognizeDraftSummary" class="text-xs ml-1"></span>
+                                    <p class="text-xs mt-1">类别 / 主色 / 特征已作为草稿预填，请核对后再点击「立即发布」；未发布前不会写入数据库。</p>
+                                </div>
+                                <button type="button" onclick="dismissRecognizeDraft()" class="text-xs px-2 py-1 rounded-lg border border-blue-300 hover:bg-white">我知道了</button>
+                            </div>
+                        </div>
                         <!-- 物品照片 -->
                         <div>
                             <label class="block text-sm font-semibold text-slate-700 mb-2">物品照片 <span class="text-slate-400 font-normal">（选填，可大幅提高匹配率）</span></label>
@@ -181,6 +190,31 @@ profile.html
                                     <option value="钥匙">钥匙</option>
                                     <option value="其他物品">其他物品</option>
                                 </select>
+                            </div>
+                        </div>
+
+                        <!-- B3：主色 / 特征标签，供智能识别结果带入，提交时随 POST /api/items 入库 -->
+                        <div class="grid sm:grid-cols-2 gap-5">
+                            <div>
+                                <label class="block text-sm font-semibold text-slate-700 mb-2">主色 <span class="text-slate-400 font-normal">（选填，可由智能识别带入）</span></label>
+                                <select id="itemColor" class="w-full px-4 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all">
+                                    <option value="">未填写</option>
+                                    <option value="黑色">黑色</option>
+                                    <option value="白色">白色</option>
+                                    <option value="银色">银色</option>
+                                    <option value="灰色">灰色</option>
+                                    <option value="红色">红色</option>
+                                    <option value="蓝色">蓝色</option>
+                                    <option value="棕色">棕色</option>
+                                    <option value="绿色">绿色</option>
+                                    <option value="黄色">黄色</option>
+                                    <option value="粉色">粉色</option>
+                                    <option value="紫色">紫色</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-semibold text-slate-700 mb-2">特征标签 <span class="text-slate-400 font-normal">（选填，顿号或逗号分隔）</span></label>
+                                <input type="text" id="itemFeatures" placeholder="如：皮质、对折、有磨损" class="w-full px-4 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl text-slate-800 placeholder-slate-400 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all">
                             </div>
                         </div>
 
@@ -277,6 +311,7 @@ profile.html
     </footer>
 
     <script src="js/common.js"></script>
+    <script src="js/recognize-draft.js"></script>
     <script src="js/campus-map.js"></script>
     <script>
         // ==================== 发布页逻辑 ====================
@@ -457,6 +492,46 @@ profile.html
             });
         }
 
+        // ===== B3：接住智能识别页带来的草稿 =====
+        // 读取一次即删除，避免刷新后反复覆盖用户已编辑的内容。
+        function applyRecognizeDraft() {
+            let raw = null;
+            try { raw = sessionStorage.getItem(window.RecognizeDraft.DRAFT_KEY); } catch (e) { return; }
+            if (!raw) return;
+            try { sessionStorage.removeItem(window.RecognizeDraft.DRAFT_KEY); } catch (e) { /* 忽略 */ }
+
+            let draft;
+            try { draft = JSON.parse(raw); } catch (e) { return; }
+            if (!draft || draft.v !== 1) return;
+
+            const ids = {
+                title: 'itemTitle', category: 'itemCategory', color: 'itemColor',
+                features: 'itemFeatures', description: 'itemDesc'
+            };
+            const current = {};
+            Object.keys(ids).forEach(k => {
+                const el = document.getElementById(ids[k]);
+                current[k] = el ? el.value : '';
+            });
+            const filled = window.RecognizeDraft.apply(draft, current);
+            Object.keys(ids).forEach(k => {
+                const el = document.getElementById(ids[k]);
+                if (el && filled[k] !== current[k]) el.value = filled[k];
+            });
+
+            const notice = document.getElementById('recognizeDraftNotice');
+            if (notice) notice.classList.remove('hidden');
+            const summary = document.getElementById('recognizeDraftSummary');
+            if (summary) {
+                summary.textContent = draft.modelError ? '（识别模型未加载，结果不完整，请重点核对）' : '';
+            }
+        }
+
+        function dismissRecognizeDraft() {
+            const notice = document.getElementById('recognizeDraftNotice');
+            if (notice) notice.classList.add('hidden');
+        }
+
         function initFormSubmit() {
             document.getElementById('publishForm').addEventListener('submit', async function (e) {
                 e.preventDefault();
@@ -467,7 +542,7 @@ profile.html
                     type: currentPublishType,
                     title: document.getElementById('itemTitle').value,
                     category: document.getElementById('itemCategory').value,
-                    color: '未知',
+                    color: document.getElementById('itemColor').value || '未知',
                     location: document.getElementById('itemLocation').value,
                     date: document.getElementById('itemDate').value,
                     image: publishImageData || '',
@@ -476,7 +551,7 @@ profile.html
                     reward: document.getElementById('itemReward').value,
                     mapX: document.getElementById('itemMapX').value || null,
                     mapY: document.getElementById('itemMapY').value || null,
-                    features: [],
+                    features: window.RecognizeDraft.parseFeatures(document.getElementById('itemFeatures').value),
                     publisher: currentUser ? currentUser.username : '匿名'
                 };
 
@@ -505,6 +580,7 @@ profile.html
         document.addEventListener('DOMContentLoaded', async function () {
             const ok = await requireAuth();
             if (!ok) return;
+            applyRecognizeDraft();
             initPublishImageUpload();
             initCampusMapPicker();
             initFormSubmit();

@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const Database = require('better-sqlite3');
 const bcrypt = require('bcryptjs');
+const config = require('./config');
 
 // 确保 data 目录存在
 const dataDir = path.join(__dirname, 'data');
@@ -12,8 +13,7 @@ if (!fs.existsSync(dataDir)) {
 
 const db = new Database(path.join(dataDir, 'xunwu.db'));
 db.pragma('journal_mode = WAL');
-// 启动时把 WAL 合并回主库文件：避免最新数据只存在于 xunwu.db-wal 中，
-// 导致拷贝 / 打包时漏掉 WAL 后数据“消失”（曾造成防冒领问答在他人电脑上不可见）。
+// 启动时把 WAL 合并回主库文件：避免最新数据只存在于 xunwu.db-wal 中导致拷贝/打包漏数据
 try {
   db.pragma('wal_checkpoint(TRUNCATE)');
 } catch (e) {
@@ -21,18 +21,53 @@ try {
 }
 
 // ---------------- 建表 ----------------
+// 用户表：放宽 phone 约束（CAS 用户可能无手机号），新增 student_id（CAS 学工号）
 db.exec(`
 CREATE TABLE IF NOT EXISTS users (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   username      TEXT UNIQUE NOT NULL,
-  password_hash TEXT NOT NULL,
-  phone         TEXT UNIQUE NOT NULL,
+  password_hash TEXT NOT NULL DEFAULT '',
+  phone         TEXT,
   avatar        TEXT DEFAULT '',
   signature     TEXT DEFAULT '',
   role          TEXT NOT NULL DEFAULT 'user',
-  created_at    INTEGER NOT NULL
+  created_at    INTEGER NOT NULL,
+  student_id    TEXT
 );
+`);
 
+// 兼容旧库：旧约束为 phone UNIQUE NOT NULL 且无 student_id，需在线迁移（保留数据）
+db.exec(`CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);`);
+const metaRow = db.prepare("SELECT value FROM meta WHERE key='schema_version'").get();
+const schemaVersion = metaRow ? Number(metaRow.value) : 1;
+if (schemaVersion < 2) {
+  const cols = db.prepare("PRAGMA table_info(users)").all().map(c => c.name);
+  if (!cols.includes('student_id')) {
+    db.exec(`ALTER TABLE users RENAME TO users_tmp;`);
+    db.exec(`
+      CREATE TABLE users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL DEFAULT '',
+        phone TEXT,
+        avatar TEXT DEFAULT '',
+        signature TEXT DEFAULT '',
+        role TEXT NOT NULL DEFAULT 'user',
+        created_at INTEGER NOT NULL,
+        student_id TEXT
+      );
+    `);
+    db.exec(`
+      INSERT INTO users (id, username, password_hash, phone, avatar, signature, role, created_at, student_id)
+      SELECT id, username, COALESCE(password_hash,''), NULLIF(phone,''), avatar, signature, role, created_at, NULL
+      FROM users_tmp;
+    `);
+    db.exec(`DROP TABLE users_tmp;`);
+  }
+  db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version','2')").run();
+}
+
+db.exec(`
 CREATE TABLE IF NOT EXISTS items (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   type        TEXT NOT NULL CHECK(type IN ('lost', 'found')),
@@ -50,7 +85,16 @@ CREATE TABLE IF NOT EXISTS items (
   status      TEXT NOT NULL DEFAULT 'active',
   created_at  INTEGER NOT NULL
 );
+`);
 
+// 兼容旧库：为已有 items 表补充新列
+const itemColumns = db.prepare("PRAGMA table_info(items)").all().map(c => c.name);
+if (!itemColumns.includes('status')) db.exec("ALTER TABLE items ADD COLUMN status TEXT NOT NULL DEFAULT 'active'");
+if (!itemColumns.includes('quiz')) db.exec("ALTER TABLE items ADD COLUMN quiz TEXT DEFAULT ''");
+if (!itemColumns.includes('map_x')) db.exec("ALTER TABLE items ADD COLUMN map_x REAL");
+if (!itemColumns.includes('map_y')) db.exec("ALTER TABLE items ADD COLUMN map_y REAL");
+
+db.exec(`
 CREATE TABLE IF NOT EXISTS feedback (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id     INTEGER,
@@ -64,30 +108,30 @@ CREATE TABLE IF NOT EXISTS feedback (
 );
 `);
 
-// ---------------- 兼容旧库：为已有 users 表补充 role 列 ----------------
-const userColumns = db.prepare("PRAGMA table_info(users)").all().map(c => c.name);
-if (!userColumns.includes('role')) {
-  db.exec("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'");
-}
+// 认领申请（脱敏：联系方式走领取码中介，不公开原始联系方式）
+db.exec(`
+CREATE TABLE IF NOT EXISTS claim_requests (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  item_id     INTEGER NOT NULL,
+  applicant_id INTEGER,
+  message     TEXT DEFAULT '',
+  status      TEXT NOT NULL DEFAULT 'pending',
+  created_at  INTEGER NOT NULL
+);
+`);
 
-// ---------------- 兼容旧库：为已有 items 表补充 status 列（active=在架 / removed=已撤销） ----------------
-const itemColumns = db.prepare("PRAGMA table_info(items)").all().map(c => c.name);
-if (!itemColumns.includes('status')) {
-  db.exec("ALTER TABLE items ADD COLUMN status TEXT NOT NULL DEFAULT 'active'");
-}
-
-// ---------------- 兼容旧库：为 items 表补充防冒领问答列（JSON：[{q, options[], answer}]，answer 为正确选项下标） ----------------
-if (!itemColumns.includes('quiz')) {
-  db.exec("ALTER TABLE items ADD COLUMN quiz TEXT DEFAULT ''");
-}
-
-// ---------------- 兼容旧库：为 items 表补充校园地图坐标列（旧数据为 NULL，热力图会按地点文字推断） ----------------
-if (!itemColumns.includes('map_x')) {
-  db.exec("ALTER TABLE items ADD COLUMN map_x REAL");
-}
-if (!itemColumns.includes('map_y')) {
-  db.exec("ALTER TABLE items ADD COLUMN map_y REAL");
-}
+// 操作日志（备案系统要求的敏感信息管控与审计留痕）
+db.exec(`
+CREATE TABLE IF NOT EXISTS operation_logs (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id     INTEGER,
+  username    TEXT DEFAULT '',
+  action      TEXT NOT NULL,
+  target      TEXT DEFAULT '',
+  ip          TEXT DEFAULT '',
+  created_at  INTEGER NOT NULL
+);
+`);
 
 // ---------------- 字段映射（不暴露密码哈希） ----------------
 function mapUser(row) {
@@ -124,7 +168,6 @@ function mapItem(row) {
   };
 }
 
-// ---------------- 反馈字段映射 ----------------
 function mapFeedback(row) {
   return {
     id: row.id,
@@ -139,9 +182,7 @@ function mapFeedback(row) {
   };
 }
 
-// ---------------- 防冒领问答：联系方式打码与公开视图 ----------------
-// 对联系方式中的字母/数字片段打码：保留前 3 位与末 1 位，中间以 * 代替
-// 例：13800138000 → 138*******0；weixin_abc123 中的 abc123 → abc**3
+// ---------------- 脱敏：联系方式打码 ----------------
 function maskContact(contact) {
   if (!contact) return '';
   return String(contact).replace(/[A-Za-z0-9]{4,}/g, (run) => {
@@ -151,44 +192,35 @@ function maskContact(contact) {
   });
 }
 
-// 公开版问答：只返回题干与选项，不暴露正确选项下标
 function publicQuiz(quiz) {
   return (quiz || []).map((q) => ({ q: q.q, options: q.options }));
 }
 
-// 公开视图：设置了防冒领问答的启事，联系方式打码、答案剥离；hasQuiz 标记前端需答题
+// 公开视图：永远不暴露原始联系方式；有问答的显示"需答题解锁"，无问答的也只显示脱敏/占位
 function publicItem(item) {
   const quiz = item.quiz || [];
-  if (!quiz.length) return item;
   return {
     ...item,
-    contact: maskContact(item.contact),
+    contact: maskContact(item.contact || ''),
     contactMasked: true,
-    hasQuiz: true,
+    hasQuiz: quiz.length > 0,
     quiz: publicQuiz(quiz)
   };
 }
 
-// ---------------- 种子数据（仅首次运行时写入） ----------------
+// ---------------- 种子数据（仅本地开发，生产通过 SEED_DEV_USER=false 关闭） ----------------
 function seed() {
-  const userCount = db.prepare('SELECT COUNT(*) AS c FROM users').get().c;
-  if (userCount === 0) {
-    const demoPassword = bcrypt.hashSync('123456', 10);
-    const createdAt = new Date('2025-01-01T00:00:00').getTime();
-    db.prepare(
-      `INSERT INTO users (username, password_hash, phone, avatar, signature, role, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run('demo', demoPassword, '13800138000', '', '帮助他人，快乐自己～', 'user', createdAt);
-  }
+  if (!config.seedDevUser) return;
 
-  // 确保管理员账号存在（幂等：不存在才创建）
-  const adminExists = db.prepare("SELECT id FROM users WHERE username = 'admin'").get();
-  if (!adminExists) {
-    const adminPassword = bcrypt.hashSync('admin123', 10);
-    db.prepare(
-      `INSERT INTO users (username, password_hash, phone, avatar, signature, role, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run('admin', adminPassword, '18800000000', '', '系统管理员', 'admin', Date.now());
+  if (!config.casEnabled) {
+    const userCount = db.prepare('SELECT COUNT(*) AS c FROM users').get().c;
+    if (userCount === 0) {
+      const now = Date.now();
+      db.prepare(`INSERT INTO users (username, password_hash, phone, avatar, signature, role, created_at) VALUES (?,?,?,?,?,?,?)`)
+        .run('demo', bcrypt.hashSync('123456', 10), '13800138000', '', '帮助他人，快乐自己～', 'user', now);
+      db.prepare(`INSERT INTO users (username, password_hash, phone, avatar, signature, role, created_at) VALUES (?,?,?,?,?,?,?)`)
+        .run('admin', bcrypt.hashSync('admin123', 10), '18800000000', '', '系统管理员', 'admin', now);
+    }
   }
 
   const itemCount = db.prepare('SELECT COUNT(*) AS c FROM items').get().c;
