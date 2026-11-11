@@ -3,71 +3,25 @@ const path = require('path');
 const fs = require('fs');
 const Database = require('better-sqlite3');
 const bcrypt = require('bcryptjs');
-const config = require('./config');
 
-// 确保 data 目录存在
-const dataDir = path.join(__dirname, 'data');
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
-}
-
-const db = new Database(path.join(dataDir, 'xunwu.db'));
+const { dbPath, seedDevUser } = require('./config');
+fs.mkdirSync(path.dirname(dbPath), { recursive: true, mode: 0o700 });
+const db = new Database(dbPath);
 db.pragma('journal_mode = WAL');
-// 启动时把 WAL 合并回主库文件：避免最新数据只存在于 xunwu.db-wal 中导致拷贝/打包漏数据
-try {
-  db.pragma('wal_checkpoint(TRUNCATE)');
-} catch (e) {
-  console.warn('[db] WAL 合并跳过：', e && e.message);
-}
 
 // ---------------- 建表 ----------------
-// 用户表：放宽 phone 约束（CAS 用户可能无手机号），新增 student_id（CAS 学工号）
 db.exec(`
 CREATE TABLE IF NOT EXISTS users (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   username      TEXT UNIQUE NOT NULL,
-  password_hash TEXT NOT NULL DEFAULT '',
-  phone         TEXT,
+  password_hash TEXT NOT NULL,
+  phone         TEXT UNIQUE NOT NULL,
   avatar        TEXT DEFAULT '',
   signature     TEXT DEFAULT '',
   role          TEXT NOT NULL DEFAULT 'user',
-  created_at    INTEGER NOT NULL,
-  student_id    TEXT
+  created_at    INTEGER NOT NULL
 );
-`);
 
-// 兼容旧库：旧约束为 phone UNIQUE NOT NULL 且无 student_id，需在线迁移（保留数据）
-db.exec(`CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);`);
-const metaRow = db.prepare("SELECT value FROM meta WHERE key='schema_version'").get();
-const schemaVersion = metaRow ? Number(metaRow.value) : 1;
-if (schemaVersion < 2) {
-  const cols = db.prepare("PRAGMA table_info(users)").all().map(c => c.name);
-  if (!cols.includes('student_id')) {
-    db.exec(`ALTER TABLE users RENAME TO users_tmp;`);
-    db.exec(`
-      CREATE TABLE users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT UNIQUE NOT NULL,
-        password_hash TEXT NOT NULL DEFAULT '',
-        phone TEXT,
-        avatar TEXT DEFAULT '',
-        signature TEXT DEFAULT '',
-        role TEXT NOT NULL DEFAULT 'user',
-        created_at INTEGER NOT NULL,
-        student_id TEXT
-      );
-    `);
-    db.exec(`
-      INSERT INTO users (id, username, password_hash, phone, avatar, signature, role, created_at, student_id)
-      SELECT id, username, COALESCE(password_hash,''), NULLIF(phone,''), avatar, signature, role, created_at, NULL
-      FROM users_tmp;
-    `);
-    db.exec(`DROP TABLE users_tmp;`);
-  }
-  db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version','2')").run();
-}
-
-db.exec(`
 CREATE TABLE IF NOT EXISTS items (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   type        TEXT NOT NULL CHECK(type IN ('lost', 'found')),
@@ -85,16 +39,7 @@ CREATE TABLE IF NOT EXISTS items (
   status      TEXT NOT NULL DEFAULT 'active',
   created_at  INTEGER NOT NULL
 );
-`);
 
-// 兼容旧库：为已有 items 表补充新列
-const itemColumns = db.prepare("PRAGMA table_info(items)").all().map(c => c.name);
-if (!itemColumns.includes('status')) db.exec("ALTER TABLE items ADD COLUMN status TEXT NOT NULL DEFAULT 'active'");
-if (!itemColumns.includes('quiz')) db.exec("ALTER TABLE items ADD COLUMN quiz TEXT DEFAULT ''");
-if (!itemColumns.includes('map_x')) db.exec("ALTER TABLE items ADD COLUMN map_x REAL");
-if (!itemColumns.includes('map_y')) db.exec("ALTER TABLE items ADD COLUMN map_y REAL");
-
-db.exec(`
 CREATE TABLE IF NOT EXISTS feedback (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id     INTEGER,
@@ -108,30 +53,21 @@ CREATE TABLE IF NOT EXISTS feedback (
 );
 `);
 
-// 认领申请（脱敏：联系方式走领取码中介，不公开原始联系方式）
-db.exec(`
-CREATE TABLE IF NOT EXISTS claim_requests (
-  id          INTEGER PRIMARY KEY AUTOINCREMENT,
-  item_id     INTEGER NOT NULL,
-  applicant_id INTEGER,
-  message     TEXT DEFAULT '',
-  status      TEXT NOT NULL DEFAULT 'pending',
-  created_at  INTEGER NOT NULL
-);
-`);
-
-// 操作日志（备案系统要求的敏感信息管控与审计留痕）
-db.exec(`
-CREATE TABLE IF NOT EXISTS operation_logs (
-  id          INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id     INTEGER,
-  username    TEXT DEFAULT '',
-  action      TEXT NOT NULL,
-  target      TEXT DEFAULT '',
-  ip          TEXT DEFAULT '',
-  created_at  INTEGER NOT NULL
-);
-`);
+// 在写锁内检查列，兼容旧库和并发启动。
+db.transaction(() => {
+  const userColumns = db.pragma('table_info(users)').map((column) => column.name);
+  if (!userColumns.includes('role')) {
+    db.exec("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'");
+  }
+  const itemColumns = db.pragma('table_info(items)').map((column) => column.name);
+  const columns = {
+    status: "TEXT NOT NULL DEFAULT 'active'", quiz: "TEXT DEFAULT ''",
+    map_x: 'REAL', map_y: 'REAL', lng: 'REAL', lat: 'REAL'
+  };
+  for (const [column, type] of Object.entries(columns)) {
+    if (!itemColumns.includes(column)) db.exec('ALTER TABLE items ADD COLUMN ' + column + ' ' + type);
+  }
+}).immediate();
 
 // ---------------- 字段映射（不暴露密码哈希） ----------------
 function mapUser(row) {
@@ -164,10 +100,13 @@ function mapItem(row) {
     publisher: row.publisher,
     status: row.status || 'active',
     mapX: row.map_x == null ? null : Number(row.map_x),
-    mapY: row.map_y == null ? null : Number(row.map_y)
+    mapY: row.map_y == null ? null : Number(row.map_y),
+    lng: row.lng == null ? null : Number(row.lng),
+    lat: row.lat == null ? null : Number(row.lat)
   };
 }
 
+// ---------------- 反馈字段映射 ----------------
 function mapFeedback(row) {
   return {
     id: row.id,
@@ -182,63 +121,63 @@ function mapFeedback(row) {
   };
 }
 
-// ---------------- 脱敏：联系方式打码 ----------------
+// ---------------- 防冒领问答：联系方式打码与公开视图 ----------------
 function maskContact(contact) {
   if (!contact) return '';
-  return String(contact).replace(/[A-Za-z0-9]{4,}/g, (run) => {
-    const head = run.slice(0, 3);
-    const tail = run.slice(-1);
-    return head + '*'.repeat(Math.max(run.length - 4, 1)) + tail;
-  });
+  const chars = Array.from(String(contact));
+  if (chars.length < 5) return '****';
+  return chars.slice(0, 2).join('') + '****' + chars.at(-1);
 }
 
+// 公开版问答：只返回题干与选项，不暴露正确选项下标
 function publicQuiz(quiz) {
   return (quiz || []).map((q) => ({ q: q.q, options: q.options }));
 }
 
-// 公开视图：永远不暴露原始联系方式；有问答的显示"需答题解锁"，无问答的也只显示脱敏/占位
+// 公开视图：设置了防冒领问答的启事，联系方式打码、答案剥离；hasQuiz 标记前端需答题
 function publicItem(item) {
   const quiz = item.quiz || [];
   return {
     ...item,
-    contact: maskContact(item.contact || ''),
-    contactMasked: true,
-    hasQuiz: quiz.length > 0,
+    // 对外仅提供约百米级经纬度。
+    lng: item.lng == null ? null : Number(item.lng.toFixed(3)),
+    lat: item.lat == null ? null : Number(item.lat.toFixed(3)),
+    contact: maskContact(item.contact),
+    contactMasked: Boolean(item.contact),
+    hasQuiz: Boolean(quiz.length),
     quiz: publicQuiz(quiz)
   };
 }
 
-// ---------------- 种子数据（仅本地开发，生产通过 SEED_DEV_USER=false 关闭） ----------------
+// ---------------- 种子数据（仅首次运行时写入） ----------------
 function seed() {
-  if (!config.seedDevUser) return;
-
-  if (!config.casEnabled) {
-    const userCount = db.prepare('SELECT COUNT(*) AS c FROM users').get().c;
-    if (userCount === 0) {
-      const now = Date.now();
-      db.prepare(`INSERT INTO users (username, password_hash, phone, avatar, signature, role, created_at) VALUES (?,?,?,?,?,?,?)`)
-        .run('demo', bcrypt.hashSync('123456', 10), '13800138000', '', '帮助他人，快乐自己～', 'user', now);
-      db.prepare(`INSERT INTO users (username, password_hash, phone, avatar, signature, role, created_at) VALUES (?,?,?,?,?,?,?)`)
-        .run('admin', bcrypt.hashSync('admin123', 10), '18800000000', '', '系统管理员', 'admin', now);
-    }
+  const { randomBytes } = require('node:crypto');
+  const addUser = db.prepare(
+    'INSERT INTO users (username, password_hash, phone, role, created_at) VALUES (?, ?, ?, ?, ?)'
+  );
+  for (const [username, role] of [['demo', 'user'], ['admin', 'admin']]) {
+    if (db.prepare('SELECT 1 FROM users WHERE username = ?').get(username)) continue;
+    const password = randomBytes(18).toString('base64url');
+    addUser.run(username, bcrypt.hashSync(password, 10), 'TEST-' + username, role, Date.now());
+    console.log('[仅本地开发] ' + username + ' 临时密码：' + password);
   }
 
   const itemCount = db.prepare('SELECT COUNT(*) AS c FROM items').get().c;
   if (itemCount === 0) {
     const now = Date.now();
     const seedItems = [
-      { type: 'lost', title: '黑色皮质钱包', category: '箱包类', color: '黑色', location: '三食堂二楼', date: '2025-01-15', image: '/images/item-1.jpg', description: '黑色皮质钱包，内有身份证、银行卡和少量现金，钱包边角有轻微磨损。', contact: '138****5678', reward: '必有重谢', features: ['皮质', '对折', '黑色'], publisher: 'demo' },
-      { type: 'lost', title: 'AirPods Pro 耳机', category: '电子数码', color: '白色', location: '图书馆三楼', date: '2025-01-14', image: '/images/item-2.jpg', description: '白色AirPods Pro，充电盒背面有刻字，左耳续航时间较短。', contact: '139****1234', reward: '500元酬谢', features: ['白色', '耳机', '苹果'], publisher: 'demo' },
-      { type: 'lost', title: '银色钥匙串', category: '钥匙', color: '银色', location: '操场看台下', date: '2025-01-14', image: '/images/item-3.jpg', description: '一串钥匙共5把，有一个小熊挂件，其中一把是宿舍钥匙。', contact: '137****9876', reward: '', features: ['银色', '钥匙', '挂件'], publisher: '' },
-      { type: 'lost', title: '蓝色保温杯', category: '其他物品', color: '蓝色', location: '教学楼A座302', date: '2025-01-13', image: '/images/item-4.jpg', description: '膳魔师蓝色保温杯，杯身有贴纸，底部有轻微凹陷。', contact: '136****5432', reward: '', features: ['蓝色', '杯子', '不锈钢'], publisher: '' },
-      { type: 'lost', title: '黑色边框眼镜', category: '衣物配饰', color: '黑色', location: '自习室B区', date: '2025-01-12', image: '/images/item-5.jpg', description: '黑框近视眼镜，镜腿有轻微磨损，镜片度数约300度。', contact: '135****6677', reward: '200元酬谢', features: ['黑色', '眼镜', '全框'], publisher: '' },
-      { type: 'lost', title: '校园卡', category: '证件文件', color: '蓝色', location: '超市内', date: '2025-01-11', image: '/images/item-6.jpg', description: '校园学生卡，卡号尾号2341，卡套是透明的。', contact: '134****8899', reward: '', features: ['蓝色', '卡片', '证件'], publisher: '' },
-      { type: 'found', title: '红色雨伞', category: '其他物品', color: '红色', location: '校车站牌', date: '2025-01-15', image: '/images/item-7.jpg', description: '捡到一把红色折叠伞，伞面有花纹图案，手柄是黑色的。', contact: '王同学 13511227788', reward: '', features: ['红色', '雨伞', '折叠'], publisher: 'demo', quiz: [{ q: '这把伞的伞面是什么样的？', options: ['纯色无图案', '有花纹图案', '格子图案', '条纹图案'], answer: 1 }, { q: '伞的手柄是什么颜色？', options: ['红色', '木色', '黑色', '透明'], answer: 2 }] },
-      { type: 'found', title: '学生卡一张', category: '证件文件', color: '蓝色', location: '超市收银台', date: '2025-01-15', image: '/images/item-8.jpg', description: '捡到一张学生校园卡，卡号尾号3456，已交至超市服务台。', contact: '超市服务台 87654321', reward: '', features: ['蓝色', '卡片', '证件'], publisher: '', quiz: [{ q: '这张学生卡的卡号尾号是多少？', options: ['3456', '1234', '6789', '0000'], answer: 0 }, { q: '卡是在哪个位置捡到的？', options: ['超市收银台', '图书馆', '食堂', '操场'], answer: 0 }] },
-      { type: 'found', title: '黑色双肩包', category: '箱包类', color: '黑色', location: '体育馆更衣室', date: '2025-01-14', image: '/images/item-9.jpg', description: 'Nike黑色双肩包，包内有运动衣物和毛巾，无贵重物品。', contact: '体育馆前台 13822223333', reward: '', features: ['黑色', '背包', '运动'], publisher: '', quiz: [{ q: '这个双肩包的品牌标识是？', options: ['Adidas', 'Nike', '李宁', '没有明显标识'], answer: 1 }, { q: '包里装的是什么？', options: ['笔记本电脑', '运动衣物和毛巾', '课本和文具', '雨伞和水杯'], answer: 1 }] },
-      { type: 'found', title: '苹果手机', category: '电子数码', color: '黑色', location: '篮球场边', date: '2025-01-13', image: '/images/item-10.jpg', description: '捡到iPhone 14手机一台，屏幕有贴膜，已交保卫处。', contact: '保卫处 88888666', reward: '', features: ['黑色', '手机', '苹果'], publisher: '', quiz: [{ q: '捡到的这部手机是什么型号？', options: ['iPhone 13', 'iPhone 14', '华为 Mate 60', '小米 14'], answer: 1 }, { q: '手机是在哪里捡到的？', options: ['图书馆', '篮球场边', '食堂', '宿舍楼下'], answer: 1 }] },
-      { type: 'found', title: '白色无线耳机', category: '电子数码', color: '白色', location: '食堂一楼', date: '2025-01-12', image: '/images/item-11.jpg', description: '捡到白色无线耳机一副，充电盒有划痕，放在食堂服务台。', contact: '食堂服务台', reward: '', features: ['白色', '耳机', '无线'], publisher: '' },
-      { type: 'found', title: '棕色钱包', category: '箱包类', color: '棕色', location: '教学楼走廊', date: '2025-01-11', image: '/images/item-12.jpg', description: '棕色短款钱包，内无现金，有银行卡若干，已交楼管处。', contact: 'A座楼管 13655556666', reward: '', features: ['棕色', '钱包', '短款'], publisher: '', quiz: [{ q: '钱包里有什么？', options: ['现金和身份证', '银行卡若干', '只有照片', '公交卡和零钱'], answer: 1 }, { q: '这个钱包是哪种款式？', options: ['长款', '拉链式', '短款', '对折带扣'], answer: 2 }] }
+      { type: 'lost', title: '黑色皮质钱包', category: '箱包类', color: '黑色', location: '三食堂二楼', date: '2025-01-15', image: '/images/item-1.jpg', description: '黑色皮质钱包，内有身份证、银行卡和少量现金，钱包边角有轻微磨损。', contact: '演示联系 TEST-0000', reward: '必有重谢', features: ['皮质', '对折', '黑色'], publisher: 'demo' },
+      { type: 'lost', title: 'AirPods Pro 耳机', category: '电子数码', color: '白色', location: '图书馆三楼', date: '2025-01-14', image: '/images/item-2.jpg', description: '白色AirPods Pro，充电盒背面有刻字，左耳续航时间较短。', contact: '演示联系 TEST-0000', reward: '500元酬谢', features: ['白色', '耳机', '苹果'], publisher: 'demo' },
+      { type: 'lost', title: '银色钥匙串', category: '钥匙', color: '银色', location: '操场看台下', date: '2025-01-14', image: '/images/item-3.jpg', description: '一串钥匙共5把，有一个小熊挂件，其中一把是宿舍钥匙。', contact: '演示联系 TEST-0000', reward: '', features: ['银色', '钥匙', '挂件'], publisher: '' },
+      { type: 'lost', title: '蓝色保温杯', category: '其他物品', color: '蓝色', location: '教学楼A座302', date: '2025-01-13', image: '/images/item-4.jpg', description: '膳魔师蓝色保温杯，杯身有贴纸，底部有轻微凹陷。', contact: '演示联系 TEST-0000', reward: '', features: ['蓝色', '杯子', '不锈钢'], publisher: '' },
+      { type: 'lost', title: '黑色边框眼镜', category: '衣物配饰', color: '黑色', location: '自习室B区', date: '2025-01-12', image: '/images/item-5.jpg', description: '黑框近视眼镜，镜腿有轻微磨损，镜片度数约300度。', contact: '演示联系 TEST-0000', reward: '200元酬谢', features: ['黑色', '眼镜', '全框'], publisher: '' },
+      { type: 'lost', title: '校园卡', category: '证件文件', color: '蓝色', location: '超市内', date: '2025-01-11', image: '/images/item-6.jpg', description: '校园学生卡，卡号尾号2341，卡套是透明的。', contact: '演示联系 TEST-0000', reward: '', features: ['蓝色', '卡片', '证件'], publisher: '' },
+      { type: 'found', title: '红色雨伞', category: '其他物品', color: '红色', location: '校车站牌', date: '2025-01-15', image: '/images/item-7.jpg', description: '捡到一把红色折叠伞，伞面有花纹图案，手柄是黑色的。', contact: '演示联系 TEST-0000', reward: '', features: ['红色', '雨伞', '折叠'], publisher: 'demo', quiz: [{ q: '这把伞的伞面是什么样的？', options: ['纯色无图案', '有花纹图案', '格子图案', '条纹图案'], answer: 1 }, { q: '伞的手柄是什么颜色？', options: ['红色', '木色', '黑色', '透明'], answer: 2 }] },
+      { type: 'found', title: '学生卡一张', category: '证件文件', color: '蓝色', location: '超市收银台', date: '2025-01-15', image: '/images/item-8.jpg', description: '捡到一张学生校园卡，卡号尾号3456，已交至超市服务台。', contact: '演示联系 TEST-0000', reward: '', features: ['蓝色', '卡片', '证件'], publisher: '', quiz: [{ q: '这张学生卡的卡号尾号是多少？', options: ['3456', '1234', '6789', '0000'], answer: 0 }, { q: '卡是在哪个位置捡到的？', options: ['超市收银台', '图书馆', '食堂', '操场'], answer: 0 }] },
+      { type: 'found', title: '黑色双肩包', category: '箱包类', color: '黑色', location: '体育馆更衣室', date: '2025-01-14', image: '/images/item-9.jpg', description: 'Nike黑色双肩包，包内有运动衣物和毛巾，无贵重物品。', contact: '演示联系 TEST-0000', reward: '', features: ['黑色', '背包', '运动'], publisher: '', quiz: [{ q: '这个双肩包的品牌标识是？', options: ['Adidas', 'Nike', '李宁', '没有明显标识'], answer: 1 }, { q: '包里装的是什么？', options: ['笔记本电脑', '运动衣物和毛巾', '课本和文具', '雨伞和水杯'], answer: 1 }] },
+      { type: 'found', title: '苹果手机', category: '电子数码', color: '黑色', location: '篮球场边', date: '2025-01-13', image: '/images/item-10.jpg', description: '捡到iPhone 14手机一台，屏幕有贴膜，已交保卫处。', contact: '演示联系 TEST-0000', reward: '', features: ['黑色', '手机', '苹果'], publisher: '', quiz: [{ q: '捡到的这部手机是什么型号？', options: ['iPhone 13', 'iPhone 14', '华为 Mate 60', '小米 14'], answer: 1 }, { q: '手机是在哪里捡到的？', options: ['图书馆', '篮球场边', '食堂', '宿舍楼下'], answer: 1 }] },
+      { type: 'found', title: '白色无线耳机', category: '电子数码', color: '白色', location: '食堂一楼', date: '2025-01-12', image: '/images/item-11.jpg', description: '捡到白色无线耳机一副，充电盒有划痕，放在食堂服务台。', contact: '演示联系 TEST-0000', reward: '', features: ['白色', '耳机', '无线'], publisher: '' },
+      { type: 'found', title: '棕色钱包', category: '箱包类', color: '棕色', location: '教学楼走廊', date: '2025-01-11', image: '/images/item-12.jpg', description: '棕色短款钱包，内无现金，有银行卡若干，已交楼管处。', contact: '演示联系 TEST-0000', reward: '', features: ['棕色', '钱包', '短款'], publisher: '', quiz: [{ q: '钱包里有什么？', options: ['现金和身份证', '银行卡若干', '只有照片', '公交卡和零钱'], answer: 1 }, { q: '这个钱包是哪种款式？', options: ['长款', '拉链式', '短款', '对折带扣'], answer: 2 }] }
     ];
     const stmt = db.prepare(
       `INSERT INTO items (type, title, category, color, location, date, image, description, contact, reward, features, publisher, quiz, created_at)
@@ -256,6 +195,6 @@ function seed() {
   }
 }
 
-seed();
+if (seedDevUser) db.transaction(seed).immediate();
 
 module.exports = { db, mapUser, mapItem, mapFeedback, maskContact, publicItem, publicQuiz };

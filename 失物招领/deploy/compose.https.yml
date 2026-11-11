@@ -1,0 +1,11 @@
+services:
+  nginx:
+    ports:
+      - "${HTTPS_PORT:-443}:443"
+    environment:
+      TLS_DOMAIN: "${TLS_DOMAIN:?Set TLS_DOMAIN before enabling HTTPS}"
+      BASE_URL: "${BASE_URL:?Set BASE_URL before enabling HTTPS}"
+      NGINX_ENVSUBST_FILTER: "^(TLS_DOMAIN|BASE_URL)$"
+    volumes:
+      - ./deploy/nginx-tls.conf.template:/etc/nginx/templates/tls.conf.template:ro
+      - ${TLS_CERT_DIR:-./deploy/certs}:/etc/nginx/tls:ro
