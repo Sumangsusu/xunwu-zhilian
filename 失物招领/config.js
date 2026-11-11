@@ -1,60 +1,56 @@
-// config.js — 集中配置（环境变量优先，提供本地开发兜底默认值）
-// 不依赖第三方库，仅用 Node 内置模块。
-const fs = require('fs');
-const path = require('path');
+const path = require('node:path');
 
-function loadEnvFile() {
-  const envPath = path.join(__dirname, '.env');
-  if (!fs.existsSync(envPath)) return;
-  const text = fs.readFileSync(envPath, 'utf8');
-  text.split(/\r?\n/).forEach((line) => {
-    const m = line.match(/^\s*([\w.-]+)\s*=\s*(.*)\s*$/);
-    if (!m || m[1].startsWith('#')) return;
-    let val = m[2];
-    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
-      val = val.slice(1, -1);
-    }
-    if (!(m[1] in process.env)) process.env[m[1]] = val;
-  });
+try {
+  process.loadEnvFile(path.join(__dirname, '.env'));
+} catch (err) {
+  if (err.code !== 'ENOENT') throw err;
 }
-loadEnvFile();
 
-const str = (v, d) => (v === undefined || v === '' ? d : v);
-const bool = (v, d) => (v === undefined ? d : (v === 'true' || v === '1'));
-const num = (v, d) => { const n = Number(v); return Number.isFinite(n) ? n : d; };
-const isHttps = (url) => typeof url === 'string' && url.startsWith('https');
+function integer(name, fallback, min, max) {
+  const value = Number(process.env[name] || fallback);
+  if (!Number.isSafeInteger(value) || value < min || value > max) {
+    throw new Error(name + ' 超出允许范围');
+  }
+  return value;
+}
 
-const casEnabled = bool(process.env.CAS_ENABLED, false);
+function origin(name) {
+  const value = process.env[name];
+  if (!value) return '';
+  const url = new URL(value);
+  if (!['http:', 'https:'].includes(url.protocol) || (value !== url.origin && value !== url.origin + '/')) {
+    throw new Error(name + ' 必须是 HTTP(S) 源，例如 https://example.org');
+  }
+  return url.origin;
+}
 
-const config = {
-  port: num(process.env.PORT, 3000),
+const production = process.env.NODE_ENV === 'production';
+const sessionSecret = process.env.SESSION_SECRET;
+if (production && (!sessionSecret || sessionSecret.length < 32 ||
+    /^(change.?me|replace.?me|your.?secret|xunwu[-_]dev)/i.test(sessionSecret) ||
+    new Set(sessionSecret).size < 12)) {
+  throw new Error('生产环境必须配置随机 SESSION_SECRET。可用 openssl rand -hex 32 生成。');
+}
 
-  // 会话 Cookie 签名密钥（生产必须改为强随机值，且勿入库）
-  sessionSecret: str(process.env.SESSION_SECRET, 'dev-only-change-me-in-production'),
-  sessionMaxAge: num(process.env.SESSION_MAX_AGE, 8 * 3600),
+const baseUrl = origin('BASE_URL');
+const imageStore = process.env.IMAGE_STORE || (production ? 'file' : 'db');
+if (!['db', 'file'].includes(imageStore)) throw new Error('IMAGE_STORE 必须为 db 或 file');
+const dbPath = path.resolve(__dirname, process.env.DB_PATH || 'data/xunwu.db');
 
-  // 武汉大学统一身份认证（CAS）
-  casEnabled,
-  casBaseUrl: str(process.env.CAS_BASE_URL, 'https://cas.whu.edu.cn/authserver'),
-  // 上线时填写：https://你的.whu.edu.cn（CAS 回调与统一注销依赖此值）
-  baseUrl: str(process.env.BASE_URL, ''),
-  // CAS 断言返回的学工号中，哪些直接赋予管理员角色（逗号分隔）
-  adminStudentIds: str(process.env.ADMIN_STUDENT_IDS, '')
-    .split(',').map(s => s.trim()).filter(Boolean),
-
-  // 本地开发：是否写入演示/管理员账号与演示数据（CAS 启用时默认不写入，避免校内暴露测试账号）
-  seedDevUser: bool(process.env.SEED_DEV_USER, !casEnabled),
-  // 开发期本地密码登录/注册；CAS 启用后自动关闭
-  allowLocalAuth: !casEnabled,
-
-  // 数据库：route B 上线时由学校实例替换（DB_TYPE=mysql|postgres|sqlite）
-  dbType: str(process.env.DB_TYPE, 'sqlite'),
-
-  // 图片存储：db（base64 入库）| file（随机文件名落盘）
-  imageStore: str(process.env.IMAGE_STORE, 'db'),
-  uploadDir: str(process.env.UPLOAD_DIR, path.join(__dirname, 'public', 'uploads')),
-  maxImageBytes: num(process.env.MAX_IMAGE_BYTES, 2 * 1024 * 1024)
+module.exports = {
+  production, baseUrl, imageStore, dbPath,
+  port: integer('PORT', 3000, 1, 65535),
+  host: process.env.HOST || '0.0.0.0',
+  trustProxy: integer('TRUST_PROXY', 0, 0, 1),
+  sessionSecret: sessionSecret || require('node:crypto').randomBytes(32).toString('hex'),
+  cookieSecure: baseUrl.startsWith('https:'),
+  seedDevUser: !production && process.env.SEED_DEV_USER === 'true',
+  corsOrigin: origin('CORS_ORIGIN'),
+  rateLimit: integer('RATE_LIMIT', 20, 1, 1000),
+  casEnabled: process.env.CAS_ENABLED === 'true',
+  casBaseUrl: process.env.CAS_BASE_URL || '',
+  mapKey: process.env.MAP_KEY || '',
+  ocrSecretId: process.env.OCR_SECRET_ID || '',
+  ocrSecretKey: process.env.OCR_SECRET_KEY || '',
+  calibrationPath: path.resolve(__dirname, process.env.CAMPUS_CALIBRATION || 'data/campus-calibration.json')
 };
-
-config.secureCookie = isHttps(config.baseUrl);
-module.exports = config;

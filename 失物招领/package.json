@@ -4,12 +4,25 @@
   "description": "寻物智联 - 智能失物招领平台（全栈版：Express + SQLite）",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "build": "tailwindcss -i tailwind.css -o public/css/tailwind.css --minify"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
-    "better-sqlite3": "^13.0.3",
-    "express": "^4.21.1",
+    "better-sqlite3": "12.11.1",
+    "express": "4.22.3",
+    "express-rate-limit": "8.7.4",
+    "font-awesome": "4.7.0",
+    "helmet": "8.3.0",
     "jsonwebtoken": "^9.0.2"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "devDependencies": {
+    "tailwindcss": "3.4.17"
+  },
+  "overrides": {
+    "body-parser": "^1.20.9"
   }
 }

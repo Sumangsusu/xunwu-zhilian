@@ -1,0 +1,48 @@
+name: xunwu-zhilian
+
+services:
+  app:
+    image: ${APP_IMAGE:-xunwu-zhilian:local}
+    build: .
+    init: true
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: '3000'
+      TRUST_PROXY: '1'
+      SEED_DEV_USER: 'false'
+    expose:
+      - '3000'
+    volumes:
+      - database:/app/data
+      - uploads:/app/public/uploads
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(async r => process.exit(r.ok && (await r.json()).status === 'ok' ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:stable-alpine
+    depends_on:
+      app:
+        condition: service_healthy
+    ports:
+      - "${HTTP_PORT:-80}:80"
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./deploy/proxy.conf:/etc/nginx/snippets/proxy.conf:ro
+      - ./deploy/acme:/var/www/acme:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 8
+    restart: unless-stopped
+
+volumes:
+  database:
+  uploads:

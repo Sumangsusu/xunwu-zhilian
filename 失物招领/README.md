@@ -6,10 +6,10 @@
 
 | 层级 | 技术 |
 | --- | --- |
-| 前端 | HTML + Tailwind CSS（CDN）+ 原生 JavaScript（fetch 调用 API） |
+| 前端 | HTML + Tailwind CSS（本地构建）+ 原生 JavaScript（fetch 调用 API） |
 | 后端 | Node.js + Express |
 | 数据库 | SQLite（better-sqlite3），数据库文件：`data/xunwu.db` |
-| 安全 | 密码 bcrypt 哈希存储（不存明文）、JWT 令牌登录鉴权（有效期 7 天）、管理员接口权限校验 |
+| 安全 | 密码 bcrypt 哈希存储（不存明文）、HttpOnly 会话 Cookie（有效期 24 小时）、管理员接口权限校验 |
 
 ## 目录结构
 
@@ -39,9 +39,9 @@
 
 ## 启动方法
 
-1. 首次运行先安装依赖（仅需一次）：
+1. 安装 Node.js 22 LTS 后安装依赖（仅需一次）：
    ```powershell
-   npm install
+   npm ci
    ```
 2. 启动服务：
    ```powershell
@@ -52,9 +52,10 @@
    - 管理后台：`http://localhost:3000/admin`
    - 同一局域网（同一 Wi-Fi）的其他设备：`http://<你的IP>:3000`（启动时会打印）
 
-预置账号：
-- 普通用户：`demo` / `123456`
-- 管理员：`admin` / `admin123`（管理后台专用）
+默认数据库为空。通过登录页注册后，可以运行 `node scripts/promote-admin.js <用户名>` 授予管理员权限。
+需要本地样例数据时，在开发环境设置 `SEED_DEV_USER=true`。新建样例账号的随机密码会在首次创建时打印。
+
+公网演示、HTTPS、PM2 和备份恢复见 [DEPLOY.md](DEPLOY.md)。
 
 > 注意：请通过网址访问，不要双击打开桌面上的 `Untitled-1.html`（那是旧版纯前端，数据不会写入服务器数据库）。
 
@@ -68,7 +69,7 @@
 | username | 用户名（唯一） |
 | password_hash | 密码的 bcrypt 哈希 |
 | phone | 手机号（唯一） |
-| avatar | 头像（base64） |
+| avatar | 头像（文件路径或 base64） |
 | signature | 个性签名 |
 | role | `user`（普通用户）/ `admin`（管理员） |
 | created_at | 注册时间（毫秒时间戳） |
@@ -92,7 +93,7 @@
 | 方法 | 路径 | 说明 | 是否需登录 |
 | --- | --- | --- | --- |
 | POST | `/api/auth/register` | 注册，body：`{username, password, phone}` | 否 |
-| POST | `/api/auth/login` | 登录（用户名或手机号），返回 token | 否 |
+| POST | `/api/auth/login` | 登录（用户名或手机号），设置会话 Cookie | 否 |
 | GET | `/api/auth/me` | 获取当前登录用户信息 | 是 |
 | PUT | `/api/auth/profile` | 修改头像/签名，body：`{avatar?, signature?}` | 是 |
 | POST | `/api/auth/logout` | 退出登录 | 否 |
@@ -102,11 +103,11 @@
 | GET | `/api/items/:id` | 物品详情 | 否 |
 | POST | `/api/items` | 发布物品（publisher 以登录用户为准） | 是 |
 | PATCH | `/api/items/:id/status` | 更新启事状态：撤销/恢复/标记已找回（寻物）或已认领（招领），需本人或管理员 | 是 |
-| GET | `/api/admin/stats` | 后台统计（需管理员 token） | 管理员 |
-| GET | `/api/admin/users` | 后台用户列表（需管理员 token） | 管理员 |
-| GET | `/api/admin/items` | 后台物品列表（需管理员 token） | 管理员 |
+| GET | `/api/admin/stats` | 后台统计（需管理员会话） | 管理员 |
+| GET | `/api/admin/users` | 后台用户列表（需管理员会话） | 管理员 |
+| GET | `/api/admin/items` | 后台物品列表（需管理员会话） | 管理员 |
 
-登录后请求需在请求头携带：`Authorization: Bearer <token>`。
+浏览器登录后会在同源请求中自动携带会话 Cookie。
 
 ## 多页架构
 
@@ -121,7 +122,7 @@
 | 智能识别 | `/recognize` | 上传图片 → 模拟识别 → 数据库智能匹配 |
 | 发布信息 | `/publish` | 发布失物/招领，支持上传真实物品图 |
 | 个人中心 | `/profile` | 头像上传、个性签名、账号信息、我的发布 |
-| 管理后台 | `/admin` | 管理员专用（admin/admin123） |
+| 管理后台 | `/admin` | 管理员专用 |
 
 公共导航栏 6 个入口 + 用户区下拉菜单在所有页面保持一致，自动高亮当前所在页面；移动端折叠为汉堡菜单。
 
@@ -147,4 +148,4 @@
 ## 备注
 
 - 想让外网（非同一局域网）用户访问，需要将服务部署到云服务器（如阿里云/腾讯云，配合 PM2 常驻运行），或将数据库替换为云服务（如 Supabase）。
-- 生产环境部署时，建议通过环境变量 `JWT_SECRET` 设置自定义密钥、`PORT` 设置端口。
+- 生产环境部署时，通过 `SESSION_SECRET` 配置随机密钥。Compose 的应用端口为 3000，公网端口由 Nginx 提供。

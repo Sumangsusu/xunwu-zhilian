@@ -22,3 +22,14 @@ node_modules/
 # 运行时上传产物与本地备份
 失物招领/public/uploads/
 失物招领/public/vendor/*.bak
+
+# A 部署制品补充（feat/deploy 合入，保留 B0 原有护栏）
+.env.*
+!.env.example
+.deploy.lock
+失物招领/backups/
+失物招领/deploy/acme/
+失物招领/deploy/certs/
+*.db
+*.db-*
+*.sqlite*
