@@ -134,6 +134,10 @@
                         </div>
                     </div>
                     <div id="hmMap" class="campus-map-wrap rounded-2xl border-2 border-slate-200 overflow-hidden"></div>
+                    <!-- B1：真实地图 / 降级模式提示 -->
+                    <div id="hmMapNotice" class="hidden mt-3 p-3 rounded-xl border-2 border-amber-200 bg-amber-50 text-amber-800 text-xs leading-relaxed">
+                        <i class="fa fa-info-circle mr-1"></i><span id="hmMapNoticeText"></span>
+                    </div>
                     <p class="text-xs text-slate-400 mt-3"><i class="fa fa-lightbulb-o mr-1 text-amber-500"></i>圆圈越大表示该地点启事越集中；点击下方列表可查看物品详情。</p>
                 </div>
 
@@ -205,42 +209,53 @@
     <script src="js/common.js"></script>
     <script src="js/campus-map.js"></script>
     <script>
+        // ===== B1：热力图 =====
+        // 隐私红线：进入前端全局对象的只有列表与聚合所需的最小字段，
+        // 联系方式、图片、描述、防冒领问答一律不落地（normalizeHeatItems 白名单）。
         let heatmapAll = [];
+        let heatmapHandle = null;
+
+        const HM_FALLBACK_TEXT = {
+            'legacy-data-no-lnglat': '当前启事尚无经纬度数据，已使用校内示意图热力图；老数据由 A3 的迁移脚本映射后会自动切换为真实地图。',
+            'no-config': '未配置地图服务，已使用校内示意图热力图。',
+            'config-unavailable': '地图服务接口不可用（未就绪或网络不通），已使用校内示意图热力图，数据正常。',
+            'sdk-unavailable': '地图组件加载失败或超时，已使用校内示意图热力图，数据正常。',
+            'visualization-missing': '热力图层未加载，已使用校内示意图热力图，数据正常。',
+            'sdk-incomplete': '地图组件不完整，已使用校内示意图热力图，数据正常。',
+            'map-init-failed': '地图初始化失败，已使用校内示意图热力图，数据正常。'
+        };
 
         async function loadHeatmap() {
             const d = await api.get('/api/items/heatmap');
-            heatmapAll = d.items || [];
+            heatmapAll = window.CampusMapGL
+                ? window.CampusMapGL.normalizeHeatItems(d.items || [])
+                : (d.items || []);
             renderHeatmap();
+            return heatmapAll;
         }
 
         function renderHeatmap() {
             const type = document.getElementById('hmType').value;
             const list = heatmapAll.filter(i => type === 'lost' ? i.type === 'lost' : type === 'found' ? i.type === 'found' : true);
-
-            const agg = new Map();
-            list.forEach(i => {
-                const k = Math.round(i.mapX) + ',' + Math.round(i.mapY);
-                if (!agg.has(k)) agg.set(k, { x: Math.round(i.mapX), y: Math.round(i.mapY), n: 0, lost: 0, found: 0 });
-                const p = agg.get(k);
-                p.n++;
-                if (i.type === 'lost') p.lost++; else p.found++;
-            });
-
-            const overlay = document.getElementById('mapOverlay');
-            if (overlay) {
-                overlay.innerHTML = [...agg.values()].map(p => {
-                    const r = 16 + Math.min(p.n, 8) * 6;
-                    const color = p.found > 0 && p.lost === 0 ? '#10B981' : (p.lost > 0 && p.found === 0 ? '#EF4444' : '#F59E0B');
-                    return `<g>
-                        <circle cx="${p.x}" cy="${p.y}" r="${r}" fill="${color}" opacity="0.18"/>
-                        <circle cx="${p.x}" cy="${p.y}" r="${Math.max(5, Math.round(r / 3))}" fill="${color}" stroke="#ffffff" stroke-width="2.5"/>
-                        <text x="${p.x}" y="${p.y - r - 6}" text-anchor="middle" font-size="17" font-weight="700" fill="#334155">${p.n}</text>
-                    </g>`;
-                }).join('');
-            }
-
+            if (heatmapHandle) heatmapHandle.update(list);
             document.getElementById('hmCount').textContent = list.length;
             renderHeatList(list);
+        }
+
+        function onHeatmapMode(handle) {
+            heatmapHandle = handle;
+            const notice = document.getElementById('hmMapNotice');
+            const text = document.getElementById('hmMapNoticeText');
+            if (notice && text) {
+                if (handle.mode === 'gl') {
+                    notice.classList.add('hidden');
+                } else {
+                    notice.classList.remove('hidden');
+                    text.textContent = HM_FALLBACK_TEXT[handle.reason] ||
+                        '当前使用校内示意图热力图；热力点为聚合展示，不显示单条启事的精确坐标。';
+                }
+            }
+            renderHeatmap();
         }
 
         function renderHeatList(list) {
@@ -266,13 +281,20 @@
             if (!ok) return;
 
             const mapWrap = document.getElementById('hmMap');
-            mapWrap.innerHTML = campusMapMarkup();
 
             window.refreshAfterItemChange = loadHeatmap;
             document.getElementById('hmType').addEventListener('change', renderHeatmap);
             document.getElementById('hmRefresh').addEventListener('click', loadHeatmap);
 
             await loadHeatmap();
+            // 老数据只有示意图坐标时强制回退 SVG，避免真实底图上一片空白
+            const hasGeo = heatmapAll.some(function (i) { return i.lng != null && i.lat != null; });
+            if (window.CampusMapGL) {
+                window.CampusMapGL.mount(mapWrap, {
+                    forceSvg: !hasGeo,
+                    onMode: onHeatmapMode
+                }).catch(function () { /* 同步兜底已渲染 SVG */ });
+            }
         });
     </script>
 </body>

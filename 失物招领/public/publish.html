@@ -232,9 +232,15 @@ profile.html
                         <div>
                             <label class="block text-sm font-semibold text-slate-700 mb-2">地图选点 <span class="text-slate-400 font-normal">（点击地图自动填入地点，可再手动微调文字）</span></label>
                             <div id="publishMap" class="campus-map-wrap rounded-2xl border-2 border-slate-200 overflow-hidden bg-white"></div>
+                            <!-- B1：地图模式 / 降级提示（无 key、断网、内网环境不白屏） -->
+                            <div id="publishMapNotice" class="hidden mt-2 p-3 rounded-xl border-2 border-amber-200 bg-amber-50 text-amber-800 text-xs leading-relaxed">
+                                <i class="fa fa-info-circle mr-1"></i><span id="publishMapNoticeText"></span>
+                            </div>
                             <p class="text-xs text-slate-400 mt-2"><i class="fa fa-map-marker mr-1 text-primary"></i>已选地点：<span id="publishMapLabel" class="text-slate-600 font-medium">尚未选择（可选）</span></p>
                             <input type="hidden" id="itemMapX">
                             <input type="hidden" id="itemMapY">
+                            <input type="hidden" id="itemLng">
+                            <input type="hidden" id="itemLat">
                         </div>
 
                         <div>
@@ -398,8 +404,11 @@ profile.html
             return quiz;
         }
 
-        // 校园地图选点
+        // ===== B1：校园地图选点（腾讯地图 GL 优先，失败自动降级自绘 SVG）=====
+        // 双写：lng/lat 是 A3 约定的 GCJ-02 真实坐标；mapX/mapY 是示意图坐标，
+        // 供当前 main 的 POST /api/items 落库、也供断网降级图显示。
         let publishMapX = null, publishMapY = null;
+        let publishMapHandle = null;
 
         function publishMarkerColor() {
             return currentPublishType === 'lost' ? '#EF4444' : '#10B981'; // 失物=红点，得物=绿点
@@ -412,31 +421,63 @@ profile.html
             overlay.innerHTML = `<circle cx="${publishMapX}" cy="${publishMapY}" r="14" fill="${c}" stroke="#ffffff" stroke-width="3"/><circle cx="${publishMapX}" cy="${publishMapY}" r="4" fill="#ffffff"/>`;
         }
 
+        const MAP_FALLBACK_TEXT = {
+            'legacy-data-no-lnglat': '当前启事尚无经纬度数据，已使用校内示意图（老数据由 A3 迁移脚本处理）。选点与发布不受影响。',
+            'no-config': '未配置地图服务，已使用校内示意图选点。部署方配置地图 key 后会自动切换为真实地图。',
+            'config-unavailable': '地图服务暂不可用（接口未就绪或网络不通），已使用校内示意图选点，发布不受影响。',
+            'sdk-unavailable': '地图组件加载失败或超时，已使用校内示意图选点，发布不受影响。',
+            'sdk-incomplete': '地图组件不完整，已使用校内示意图选点，发布不受影响。',
+            'map-init-failed': '地图初始化失败，已使用校内示意图选点，发布不受影响。',
+            'disabled': '真实地图已在配置中关闭，当前使用校内示意图选点。'
+        };
+
+        function onPublishMapMode(handle) {
+            publishMapHandle = handle;
+            const notice = document.getElementById('publishMapNotice');
+            const text = document.getElementById('publishMapNoticeText');
+            if (!notice || !text) return;
+            if (handle.mode === 'gl') {
+                notice.classList.add('hidden');
+                return;
+            }
+            notice.classList.remove('hidden');
+            text.textContent = MAP_FALLBACK_TEXT[handle.reason] ||
+                '当前使用校内示意图选点（真实地图未启用）。选点与发布不受影响，坐标以示意图写入。';
+        }
+
+        function applyPublishCoords(c) {
+            const locInput = document.getElementById('itemLocation');
+            // 地点文字：优先真实地图逆地理编码结果，其次示意图区域名；用户已填写则不覆盖
+            if (!locInput.value.trim()) {
+                locInput.value = c.address || c.zone || '地图选点';
+            }
+            document.getElementById('itemLng').value = c.lng == null ? '' : c.lng;
+            document.getElementById('itemLat').value = c.lat == null ? '' : c.lat;
+            document.getElementById('itemMapX').value = c.mapX == null ? '' : c.mapX;
+            document.getElementById('itemMapY').value = c.mapY == null ? '' : c.mapY;
+            publishMapX = c.mapX;
+            publishMapY = c.mapY;
+
+            const label = document.getElementById('publishMapLabel');
+            if (c.source === 'gl') {
+                label.textContent = (c.zone || '真实地图选点') +
+                    '（GCJ-02 ' + c.lng + ', ' + c.lat + '）';
+            } else {
+                label.textContent = (c.zone || '自定义点') +
+                    '（' + c.mapX + ', ' + c.mapY + '）';
+            }
+            renderPublishMarker();
+        }
+
         function initCampusMapPicker() {
             const wrap = document.getElementById('publishMap');
-            if (!wrap) return;
-            wrap.innerHTML = campusMapMarkup();
-            const svg = wrap.querySelector('svg');
-
-            svg.addEventListener('click', function (evt) {
-                const pt = campusSvgPoint(svg, evt.clientX, evt.clientY);
-                if (!pt || pt.x < 0 || pt.x > CAMPUS_MAP_W || pt.y < 0 || pt.y > CAMPUS_MAP_H) return;
-                publishMapX = pt.x;
-                publishMapY = pt.y;
-                const zone = campusZoneAt(pt.x, pt.y);
-                const locInput = document.getElementById('itemLocation');
-                if (zone) {
-                    locInput.value = zone.name;
-                } else if (!locInput.value.trim()) {
-                    locInput.value = '地图选点';
-                }
-                document.getElementById('itemMapX').value = pt.x;
-                document.getElementById('itemMapY').value = pt.y;
-                document.getElementById('publishMapLabel').textContent = zone
-                    ? (zone.name + '（' + pt.x + ', ' + pt.y + '）')
-                    : ('自定义点（' + pt.x + ', ' + pt.y + '）');
-                renderPublishMarker();
-            });
+            if (!wrap || !window.CampusMapGL) return;
+            window.CampusMapGL.mount(wrap, {
+                pick: true,
+                onPick: applyPublishCoords,
+                currentLocation: function () { return document.getElementById('itemLocation').value; },
+                onMode: onPublishMapMode
+            }).catch(function () { /* 同步兜底已渲染 SVG，忽略异步升级异常 */ });
         }
 
         // 发布图片上传（选填）
@@ -551,6 +592,8 @@ profile.html
                     reward: document.getElementById('itemReward').value,
                     mapX: document.getElementById('itemMapX').value || null,
                     mapY: document.getElementById('itemMapY').value || null,
+                    lng: document.getElementById('itemLng').value || null,
+                    lat: document.getElementById('itemLat').value || null,
                     features: window.RecognizeDraft.parseFeatures(document.getElementById('itemFeatures').value),
                     publisher: currentUser ? currentUser.username : '匿名'
                 };
