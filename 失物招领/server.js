@@ -11,15 +11,25 @@ const { db, mapUser, mapItem, mapFeedback, publicItem } = require('./db');
 const { setSession, clearSession, sessionUser, isLegacySeed } = require('./session');
 const { coordinates, validPair } = require('./coordinates');
 const { readImage, saveImage } = require('./images');
+const { buildMapConfig, mapCspSources } = require('./map-config');
+const ocr = require('./ocr');
 
 const app = express();
 app.set('trust proxy', config.trustProxy || false);
+
+// B1 真实地图启用后，SDK 脚本、瓦片、Web 服务与 Worker 都来自腾讯地图域名。
+// 未启用时返回空数组，整站维持原有严格 CSP，不因可选功能放宽安全策略。
+const mapSources = mapCspSources();
 app.use(helmet({
   strictTransportSecurity: config.cookieSecure ? undefined : false,
   contentSecurityPolicy: { directives: {
     // 现有页面使用内联脚本及事件处理器。动态内容在前端转义。
-    scriptSrc: ["'self'", "'unsafe-inline'"],
+    scriptSrc: ["'self'", "'unsafe-inline'", ...mapSources],
     scriptSrcAttr: ["'unsafe-inline'"],
+    connectSrc: ["'self'", ...mapSources],
+    imgSrc: ["'self'", 'data:', 'blob:', ...mapSources],
+    workerSrc: ["'self'", 'blob:'],
+    styleSrc: ["'self'", "'unsafe-inline'"],
     upgradeInsecureRequests: null
   } }
 }));
@@ -60,6 +70,7 @@ const limit = (max) => rateLimit({
 const loginLimit = limit(config.rateLimit);
 const publishLimit = limit(config.rateLimit);
 const verifyLimit = limit(5);
+const ocrLimit = limit(10);
 app.use(express.json({ limit: '8mb', inflate: false }));
 
 // 页面（.html 及无扩展名路由）禁止缓存，确保前端改动后浏览器总是拿到最新页面
@@ -192,6 +203,28 @@ app.put('/api/auth/profile', authRequired, (req, res) => {
 app.post('/api/auth/logout', (_req, res) => {
   clearSession(res);
   return res.json({ success: true });
+});
+
+// ==================== 配置与文字识别 API（A↔B 协同） ====================
+
+// B1 前端 readConfig() 的唯一数据来源。未配 key / 未实测标定时 enabled:false，
+// 前端按设计降级自绘 SVG；这里永远返回 JSON，不会被 app.get('*') 的 SPA 兜底吃掉。
+app.get('/api/map/config', (_req, res) => {
+  res.json(buildMapConfig());
+});
+
+// B2：密钥只在后端，图片不落盘、不入库。失败统一给可操作提示，不抛堆栈、不报 5xx。
+app.post('/api/ocr', authRequired, ocrLimit, async (req, res) => {
+  try {
+    const result = await ocr.recognize((req.body || {}).image);
+    if (!result.ok) {
+      return res.json({ success: false, code: result.code, message: result.message });
+    }
+    return res.json({ success: true, text: result.text });
+  } catch (err) {
+    console.error('[ocr]', err.code || err.name);
+    return res.json({ success: false, code: 'ocr-unavailable', message: '文字识别服务暂时不可用，请手动填写描述' });
+  }
 });
 
 // ==================== 物品相关 API ====================

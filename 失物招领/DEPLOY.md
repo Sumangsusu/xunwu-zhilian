@@ -17,9 +17,16 @@
 | `SEED_DEV_USER` | 默认为 `false`，需要样例才启用 | `false` | `false` |
 | `CORS_ORIGIN` | 同源留空 | 同源留空 | 同源留空，跨源时填受信的完整来源 |
 | `RATE_LIMIT` | 默认 `20` | 同一 IP 每 15 分钟的登录和注册合计 20 次，发布另计 | 按校园出口流量调整 |
-| 地图与 OCR | SVG 无需 key | `MAP_KEY`、`OCR_SECRET_ID`、`OCR_SECRET_KEY` 留空 | 仅在相应服务接入后向后端注入 |
+| 地图与 OCR | 全部留空，降级自绘 SVG | `MAP_KEY` / `MAP_CENTER_*` / `OCR_SECRET_*` 留空即可 IP 演示 | 仅在账号持有人申请 key、并完成校区实测标定后注入 |
 
 当前压缩包只有本地账号认证。启用 `CAS_ENABLED=true` 会明确拒绝启动。校方完成 service 回调登记、HTTPS 和测试账号准备后，还需接入 CAS 票据校验和会话签发。校内环境可先用表中的本地账号配置验收部署。任何环境均应为 `BASE_URL` 使用浏览器实际访问的协议、主机和端口。
+
+### 地图与文字识别的启用条件（A↔B 协同接口）
+
+- `GET /api/map/config` 由后端统一下发 `{enabled, sdkUrl, key, center, zoom}`。**只有同时具备** `MAP_KEY`（腾讯位置服务）与 `MAP_CENTER_LNG` / `MAP_CENTER_LAT`（A、B 现场实测的 GCJ-02 校区基准点）时才返回 `enabled:true`；缺任意一项都返回 `enabled:false`，前端按设计降级自绘 SVG，不白屏、不编造坐标。`MAP_SDK_URL` 可覆盖官方 SDK 地址，但必须 HTTPS 且主机为 `map.qq.com`（或其子域）。
+- 真实地图启用时，服务端 helmet CSP 会自动放行 `map.qq.com` / `*.qq.com` 的脚本、瓦片、连接与 Worker；未启用时维持原有严格 CSP，不为可选功能放宽整站策略。
+- `POST /api/ocr` 需要登录，密钥 `OCR_SECRET_ID` / `OCR_SECRET_KEY` 只在后端。未配置时返回 `{"success":false,"code":"ocr-not-configured",...}`，发布页显示「文字识别暂未启用，请手动填写描述」，不弹报错、不产生 5xx。识别文本在服务端先行脱敏（手机号 / 证件号 / 长学号），只作发布页描述草稿，必须用户确认后才会入库。
+- key 与实测标定值一律写入部署机的 `.env`（权限 `0600`），**不得提交进仓库**。
 
 ### 本地开发
 
@@ -104,6 +111,18 @@ node scripts/promote-admin.js <运维用户名>
 4. 在热力图确认此启事出现在选中的 SVG 区域。带实测标定的区域同时有经纬度。
 5. 用管理员账号访问 `/admin`，在物品管理中将该启事标记为已认领。刷新热力图确认已结案点消失。
 6. 执行 `docker compose down` 和 `docker compose up -d --wait`，再次核对启事状态和附件。
+
+上述 1~5 步可用零依赖脚本自动复跑。脚本会真实注册两个测试账号、发布一条启事并在最后结案，不会残留在架列表：
+
+```bash
+node scripts/check-backend-integration.js           # 接口契约 32 项
+node scripts/check-e2e-flow.js http://127.0.0.1     # 端到端 19 项
+node scripts/check-frontend-baseline.js             # B0  7 项
+node scripts/check-recognize-publish.js             # B3 29 项
+node scripts/check-map-compliance.js                # B1 75 项
+```
+
+公网演示站把第二条的地址换成 `http://<公网IP>` 即可。这些脚本只读 `/health` 与配置接口，并按正常用户流程写入数据，不需要任何人工补操作；请在验收 / 演示环境运行，不要在正式生产库上跑。
 
 ## 旧库迁移与坐标接口
 

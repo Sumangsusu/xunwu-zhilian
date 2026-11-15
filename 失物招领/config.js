@@ -50,7 +50,14 @@ module.exports = {
   casEnabled: process.env.CAS_ENABLED === 'true',
   casBaseUrl: process.env.CAS_BASE_URL || '',
   mapKey: process.env.MAP_KEY || '',
+  // SDK 地址模板由部署方下发，仓库内只放官方路径，不含任何可用 key。
+  mapSdkUrl: process.env.MAP_SDK_URL || 'https://map.qq.com/api/gljs?v=1.exp',
+  // 校区基准点必须是 A、B 现场实测的 GCJ-02 值；留空即保持自绘 SVG 降级。
+  mapCenterLng: process.env.MAP_CENTER_LNG || '',
+  mapCenterLat: process.env.MAP_CENTER_LAT || '',
+  mapZoom: process.env.MAP_ZOOM || '',
   ocrSecretId: process.env.OCR_SECRET_ID || '',
   ocrSecretKey: process.env.OCR_SECRET_KEY || '',
+  ocrRegion: process.env.OCR_REGION || 'ap-guangzhou',
   calibrationPath: path.resolve(__dirname, process.env.CAMPUS_CALIBRATION || 'data/campus-calibration.json')
 };
