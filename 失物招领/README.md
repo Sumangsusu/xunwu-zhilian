@@ -55,7 +55,7 @@
 默认数据库为空。通过登录页注册后，可以运行 `node scripts/promote-admin.js <用户名>` 授予管理员权限。
 需要本地样例数据时，在开发环境设置 `SEED_DEV_USER=true`。新建样例账号的随机密码会在首次创建时打印。
 
-公网演示、HTTPS、PM2 和备份恢复见 [DEPLOY.md](DEPLOY.md)。
+公网演示、HTTPS、PM2 和备份恢复见 [DEPLOY.md](DEPLOY.md)。服务器不是 Ubuntu（Alibaba Cloud Linux 3 / RHEL 8 系）时，先用 `sudo bash deploy/bootstrap-rhel8.sh` 装好宿主机依赖，再原样执行 `bash deploy/deploy.sh`。
 
 ## 协同接口与验收脚本
 
