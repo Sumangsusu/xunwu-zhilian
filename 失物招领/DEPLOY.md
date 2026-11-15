@@ -27,6 +27,8 @@
 - 真实地图启用时，服务端 helmet CSP 会自动放行 `map.qq.com` / `*.qq.com` 的脚本、瓦片、连接与 Worker；未启用时维持原有严格 CSP，不为可选功能放宽整站策略。
 - `POST /api/ocr` 需要登录，密钥 `OCR_SECRET_ID` / `OCR_SECRET_KEY` 只在后端。未配置时返回 `{"success":false,"code":"ocr-not-configured",...}`，发布页显示「文字识别暂未启用，请手动填写描述」，不弹报错、不产生 5xx。识别文本在服务端先行脱敏（手机号 / 证件号 / 长学号），只作发布页描述草稿，必须用户确认后才会入库。
 - key 与实测标定值一律写入部署机的 `.env`（权限 `0600`），**不得提交进仓库**。
+- 中心点也可以放在标定文件里：`.env` 的 `MAP_CENTER_LNG` / `MAP_CENTER_LAT` 未配置时，服务端会读取 `CAMPUS_CALIBRATION`（默认 `data/campus-calibration.json`，格式见 `deploy/campus-calibration.example.json`），按其 `center` 或 `zones` 第一个有效点启用；文件缺失、JSON 损坏或坐标越界仍保持关闭。
+- **完整的人工操作步骤（申请 key、配白名单、采集 GCJ-02、申请 OCR 密钥、改 A 记录、备案合规）见 [EXTERNAL-SERVICES.md](EXTERNAL-SERVICES.md)。**
 
 ### 本地开发
 

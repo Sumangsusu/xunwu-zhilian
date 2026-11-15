@@ -53,5 +53,11 @@ compose=("${docker_cmd[@]}" compose)
 "${compose[@]}" config --quiet
 "${compose[@]}" up --build -d --wait --wait-timeout 120
 binding=$("${compose[@]}" port nginx 80)
-curl -fsS --retry 8 --retry-all-errors --retry-delay 2 "http://127.0.0.1:${binding##*:}/health"
+# 旧版 curl（如 EL8 自带 7.61）不认识 --retry-all-errors，先探测能力再拼接参数，
+# 否则健康检查会因参数不被识别而误报失败（其实站点已经起来了）。
+retry_args=(--retry 8 --retry-delay 2 --retry-connrefused)
+if curl --help all 2>/dev/null | grep -q -- '--retry-all-errors'; then
+  retry_args+=(--retry-all-errors)
+fi
+curl -fsS "${retry_args[@]}" "http://127.0.0.1:${binding##*:}/health"
 printf '\n'
