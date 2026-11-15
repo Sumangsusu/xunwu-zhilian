@@ -11,6 +11,7 @@
 'use strict';
 
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const ROOT = path.join(__dirname, '..');
 
@@ -61,6 +62,8 @@ const CLEAN = {
     MAP_CENTER_LNG: '',
     MAP_CENTER_LAT: '',
     MAP_ZOOM: '',
+    // 显式指向不存在的标定文件，避免开发者本机真实标定影响断言结果。
+    CAMPUS_CALIBRATION: 'data/__no-such-calibration__.json',
     OCR_SECRET_ID: '',
     OCR_SECRET_KEY: '',
     OCR_REGION: 'ap-guangzhou'
@@ -109,6 +112,43 @@ async function main() {
     const csp = m.map.mapCspSources();
     check('启用真实地图时 CSP 放行腾讯地图域', csp.indexOf('https://map.qq.com') >= 0 && csp.length >= 2);
     check('未启用时不放宽 CSP（对照）', loadWith(CLEAN).map.mapCspSources().length === 0);
+
+    // ---------- 地图配置：现场实测标定文件回退 ----------
+    const calDir = fs.mkdtempSync(path.join(os.tmpdir(), 'xunwu-cal-'));
+    const calFile = path.join(calDir, 'campus-calibration.json');
+    try {
+        fs.writeFileSync(calFile, JSON.stringify({ center: { lng: 114.3621, lat: 30.5412 }, zoom: 17 }));
+        m = loadWith(Object.assign({}, WITH_KEY, { CAMPUS_CALIBRATION: calFile }));
+        cfg = m.map.buildMapConfig();
+        check('仅有标定文件（无环境变量中心点）时也能启用真实地图',
+            cfg.enabled === true && cfg.center.lng === 114.3621 && cfg.center.lat === 30.5412, cfg.reason);
+        check('标定文件的 zoom 生效', cfg.zoom === 17);
+
+        fs.writeFileSync(calFile, JSON.stringify({
+            zones: [{ name: '空点', lng: null, lat: null }, { name: '图书馆', lng: 114.35, lat: 30.53 }]
+        }));
+        m = loadWith(Object.assign({}, WITH_KEY, { CAMPUS_CALIBRATION: calFile }));
+        cfg = m.map.buildMapConfig();
+        check('标定文件按 zones 回退到第一个有效点',
+            cfg.enabled === true && cfg.center.lng === 114.35 && cfg.center.lat === 30.53, cfg.reason);
+
+        fs.writeFileSync(calFile, '{not valid json');
+        m = loadWith(Object.assign({}, WITH_KEY, { CAMPUS_CALIBRATION: calFile }));
+        check('标定文件 JSON 损坏时安全降级',
+            m.map.buildMapConfig().reason === 'campus-calibration-not-configured');
+
+        fs.writeFileSync(calFile, JSON.stringify({ center: { lng: 114.3621, lat: 30.5412 } }));
+        m = loadWith(Object.assign({}, CALIBRATED, { CAMPUS_CALIBRATION: calFile }));
+        check('环境变量中心点优先于标定文件',
+            m.map.buildMapConfig().center.lng === 114.36);
+
+        fs.writeFileSync(calFile, JSON.stringify({ center: { lng: 0, lat: 0 } }));
+        m = loadWith(Object.assign({}, WITH_KEY, { CAMPUS_CALIBRATION: calFile }));
+        check('标定文件坐标越界时不得启用',
+            m.map.buildMapConfig().reason === 'campus-calibration-not-configured');
+    } finally {
+        try { fs.rmSync(calDir, { recursive: true, force: true }); } catch (e) { /* 清理失败不影响结论 */ }
+    }
 
     // ---------- OCR：签名 + 隐私 + 降级 ----------
     m = loadWith(CLEAN);

@@ -13,6 +13,7 @@
  */
 'use strict';
 
+const fs = require('node:fs');
 const config = require('./config');
 
 const ALLOWED_HOST = 'map.qq.com';
@@ -36,13 +37,61 @@ function disabled(reason) {
   };
 }
 
+/**
+ * 读取现场实测的 GCJ-02 标定文件（路径来自 CAMPUS_CALIBRATION）。
+ * 支持两种写法，center 优先，其次取 zones 里第一个有效点：
+ *   { "center": { "lng": 114.36, "lat": 30.54 }, "zoom": 16 }
+ *   { "zones": [ { "name": "图书馆", "lng": 114.36, "lat": 30.54 } ] }
+ * 文件缺失、JSON 损坏或坐标越界统一返回 null，调用方据此保持自绘 SVG 降级。
+ */
+function calibrationCenter() {
+  let raw;
+  try {
+    raw = fs.readFileSync(config.calibrationPath, 'utf8');
+  } catch (err) {
+    return null;
+  }
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch (err) {
+    return null;
+  }
+  const candidates = [];
+  if (data && data.center) candidates.push({ point: data.center, zoom: data.zoom });
+  if (data && Array.isArray(data.zones)) {
+    for (const zone of data.zones) {
+      if (!zone) continue;
+      candidates.push({ point: zone.center || zone, zoom: zone.zoom });
+    }
+  }
+  for (const item of candidates) {
+    if (!item || !item.point) continue;
+    const lng = numberInRange(item.point.lng, 73, 135);
+    const lat = numberInRange(item.point.lat, 3, 54);
+    if (lng !== null && lat !== null) {
+      return { lng: lng, lat: lat, zoom: item.zoom };
+    }
+  }
+  return null;
+}
+
 function buildMapConfig() {
   const key = String(config.mapKey || '').trim();
   if (!key) return disabled('map-key-not-configured');
 
-  // 校区基准点不做任何默认猜测：没有实测标定就保持关闭。
-  const lng = numberInRange(config.mapCenterLng, 73, 135);
-  const lat = numberInRange(config.mapCenterLat, 3, 54);
+  // 优先读环境变量；未配置时回退到实测标定文件；两者都没有就保持关闭，绝不猜坐标。
+  let lng = numberInRange(config.mapCenterLng, 73, 135);
+  let lat = numberInRange(config.mapCenterLat, 3, 54);
+  let zoomRaw = config.mapZoom;
+  if (lng === null || lat === null) {
+    const cal = calibrationCenter();
+    if (cal) {
+      lng = cal.lng;
+      lat = cal.lat;
+      if (zoomRaw === '' || zoomRaw == null) zoomRaw = cal.zoom;
+    }
+  }
   if (lng === null || lat === null) return disabled('campus-calibration-not-configured');
 
   let url;
@@ -61,7 +110,7 @@ function buildMapConfig() {
   url.searchParams.set('key', key);
   url.searchParams.set('libraries', DEFAULT_LIBRARIES);
 
-  const zoom = numberInRange(config.mapZoom, 3, 20);
+  const zoom = numberInRange(zoomRaw, 3, 20);
   return {
     enabled: true,
     reason: '',
