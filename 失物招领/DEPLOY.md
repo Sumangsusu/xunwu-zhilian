@@ -59,6 +59,24 @@ curl -fsS http://localhost/health
 
 `down` 保留两个命名卷。跨环境切换应使用独立目录和项目名，例如设置 `.env` 中的 `COMPOSE_PROJECT_NAME=xunwu-demo`。删除卷的操作会清空相应实例的数据与图片。
 
+### 非 Ubuntu 主机（Alibaba Cloud Linux 3 / RHEL 8 系）
+
+`deploy.sh` 的自动装依赖分支只写了 Ubuntu，但**只有在缺 `docker` / `docker compose` / `curl` / `openssl` 任一一项时**才会检查发行版。因此 EL8 系主机只要先装齐这四样，就能原样运行 `bash deploy/deploy.sh`，不需要改任何应用代码、也不需要换 Compose 文件。
+
+```bash
+sudo bash deploy/bootstrap-rhel8.sh
+# 再 clone 仓库，进入 失物招领 目录
+bash deploy/deploy.sh
+curl -fsS http://localhost/health
+```
+
+`bootstrap-rhel8.sh` 只做宿主机准备（git、Docker CE、Compose v2、镜像加速），不改应用代码、不生成 `.env`、不启动容器，可重复执行。两个必须注意的坑：
+
+- **必须装 EL8 的 docker-ce 包。** `download.docker.com/linux/centos/9` 是 EL9 包、依赖 `GLIBC_2.34`，在 EL8 主机上 dnf 会报 `cannot install the best candidate`；脚本改用 `mirrors.aliyun.com/docker-ce/linux/centos/8/$basearch/stable`。
+- **中国内地节点常无法直连 Docker Hub。** `auth.docker.io` 与 `registry-1.docker.io` 不通时，`docker compose up --build` 拉不到 `node:22-bookworm-slim` 和 `nginx:stable-alpine`。脚本只在本机还没有 `/etc/docker/daemon.json` 时写入可用的 `registry-mirrors`，已有配置一律不覆盖。
+
+容器内 `apt-get` 默认走 `deb.debian.org`，跨境链路上 `apt-get update` 可能耗时十几分钟，属于构建慢而不是卡死；可用 `docker compose build --progress=plain` 观察进度。本适配只验证「预先装好依赖后原样跑通 `deploy.sh`」，A1 清单要求的「干净 Ubuntu 一键启动、30 分钟内可用」仍以 Ubuntu 实机验收为准。
+
 ### 域名与 HTTPS
 
 先让域名 A 记录指向服务器，并确认 80 和 443 入站可访问。域名实名认证、备案、云服务器购买和校方审批由账号持有人办理。备案未完成时按获准的 IP 演示方案验收。
