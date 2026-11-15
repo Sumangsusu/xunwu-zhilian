@@ -172,6 +172,16 @@ profile.html
                                 <button type="button" id="publishImageClear" class="hidden mt-3 mx-auto px-4 py-1.5 text-xs rounded-lg border-2 border-red-200 text-red-500 hover:bg-red-50">清除图片</button>
                             </div>
                             <input type="file" id="publishImageInput" accept="image/*" class="hidden">
+                            <!-- B2：文字识别只填描述草稿，必须用户核对后手动发布 -->
+                            <div class="mt-3 flex flex-wrap items-center gap-3">
+                                <button type="button" id="ocrDraftBtn" class="text-xs px-3 py-2 rounded-lg border-2 border-slate-200 text-slate-600 hover:border-primary hover:text-primary transition-colors">
+                                    <i class="fa fa-font mr-1"></i>识别图中文字，填入描述草稿
+                                </button>
+                                <span class="text-xs text-slate-400">识别结果仅作草稿，不会自动发布或入库</span>
+                            </div>
+                            <div id="ocrDraftNotice" class="hidden mt-2 p-3 rounded-xl border-2 text-xs leading-relaxed border-blue-200 bg-blue-50 text-blue-800">
+                                <i class="fa fa-info-circle mr-1"></i><span id="ocrDraftNoticeText"></span>
+                            </div>
                         </div>
 
                         <div class="grid sm:grid-cols-2 gap-5">
@@ -318,6 +328,7 @@ profile.html
 
     <script src="js/common.js"></script>
     <script src="js/recognize-draft.js"></script>
+    <script src="js/ocr-draft.js"></script>
     <script src="js/campus-map.js"></script>
     <script>
         // ==================== 发布页逻辑 ====================

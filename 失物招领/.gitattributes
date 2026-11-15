@@ -2,3 +2,5 @@
 Dockerfile text eol=lf
 *.conf text eol=lf
 *.template text eol=lf
+# deploy.sh 用 sed 匹配 ^SESSION_SECRET=$ 生成密钥，CRLF 会导致生成空密钥、生产拒绝启动
+.env.example text eol=lf

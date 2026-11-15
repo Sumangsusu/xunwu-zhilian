@@ -57,6 +57,28 @@
 
 公网演示、HTTPS、PM2 和备份恢复见 [DEPLOY.md](DEPLOY.md)。
 
+## 协同接口与验收脚本
+
+前后端在两处接口上对接，均由后端下发配置，前端不持有任何密钥：
+
+| 接口 | 用途 | 未配置时 |
+| --- | --- | --- |
+| `GET /api/map/config` | 下发腾讯地图 GL JS 的 SDK 地址、key、GCJ-02 中心点与 zoom | `enabled:false`，热力图 / 选点降级为自绘 SVG |
+| `POST /api/ocr` | 图片文字识别，结果只作发布页描述草稿 | 返回友好提示，不报错、不入库 |
+
+需要的环境变量见 `.env.example`：`MAP_KEY` / `MAP_CENTER_LNG` / `MAP_CENTER_LAT`（校区基准点须现场实测）、`OCR_SECRET_ID` / `OCR_SECRET_KEY`。全部留空即可完成 IP 演示验收，不阻塞部署。
+
+改动后按下面顺序回归（零依赖，无需安装测试框架）：
+
+```powershell
+node scripts/check-frontend-baseline.js
+node scripts/check-recognize-publish.js
+node scripts/check-map-compliance.js
+node scripts/check-backend-integration.js
+npm start   # 另开一个终端启动服务
+node scripts/check-e2e-flow.js
+```
+
 > 注意：请通过网址访问，不要双击打开桌面上的 `Untitled-1.html`（那是旧版纯前端，数据不会写入服务器数据库）。
 
 ## 数据库表结构
