@@ -111,6 +111,9 @@ async function main() {
         cfg.center.lng === 114.36 && cfg.center.lat === 30.53 && cfg.zoom === 17);
     const csp = m.map.mapCspSources();
     check('启用真实地图时 CSP 放行腾讯地图域', csp.indexOf('https://map.qq.com') >= 0 && csp.length >= 2);
+    // 实机复现：缺 qpic.cn/gtimg.com 会导致底图空白（样式脚本与瓦片图片被 CSP 拦截）
+    check('CSP 放行地图样式脚本域 qpic.cn', csp.indexOf('https://*.qpic.cn') >= 0);
+    check('CSP 放行地图瓦片图片域 gtimg.com', csp.indexOf('https://*.gtimg.com') >= 0);
     check('未启用时不放宽 CSP（对照）', loadWith(CLEAN).map.mapCspSources().length === 0);
 
     // ---------- 地图配置：现场实测标定文件回退 ----------
@@ -146,6 +149,53 @@ async function main() {
         m = loadWith(Object.assign({}, WITH_KEY, { CAMPUS_CALIBRATION: calFile }));
         check('标定文件坐标越界时不得启用',
             m.map.buildMapConfig().reason === 'campus-calibration-not-configured');
+        // 同一标定文件被 coordinates.js（旧格式）与 map-config.js（新格式）共用，
+        // 两种格式都必须能被 coordinates.js 解析，否则写入一种会让服务端启动时崩溃。
+        function loadCoordinates(calPath) {
+            const target = path.join(ROOT, 'coordinates.js');
+            delete require.cache[require.resolve(target)];
+            const savedCal = process.env.CAMPUS_CALIBRATION;
+            const realLoad = process.loadEnvFile;
+            process.env.CAMPUS_CALIBRATION = calPath;
+            process.loadEnvFile = function () { };
+            for (const f of ['config.js', 'coordinates.js']) {
+                const t = path.join(ROOT, f);
+                try { delete require.cache[require.resolve(t)]; } catch (e) { /* noop */ }
+            }
+            try {
+                return require(target);
+            } finally {
+                process.loadEnvFile = realLoad;
+                if (savedCal === undefined) delete process.env.CAMPUS_CALIBRATION;
+                else process.env.CAMPUS_CALIBRATION = savedCal;
+            }
+        }
+
+        fs.writeFileSync(calFile, JSON.stringify({ '图书馆': { lng: 114.35, lat: 30.53 } }));
+        let coords = loadCoordinates(calFile);
+        check('coordinates.js 兼容旧格式（区域名为键）',
+            coords.calibration.some((p) => p.name === '图书馆' && p.lng === 114.35));
+
+        fs.writeFileSync(calFile, JSON.stringify({
+            center: { lng: 114.36, lat: 30.54 }, zoom: 16,
+            zones: [
+                { name: '图书馆', lng: 114.351, lat: 30.531 },
+                { name: '食堂', lng: 114.352, lat: 30.532 },
+                { name: '未知建筑', lng: 114.359, lat: 30.539 }
+            ]
+        }));
+        coords = loadCoordinates(calFile);
+        check('coordinates.js 兼容新格式（center+zones）',
+            coords.calibration.some((p) => p.name === '图书馆' && p.lng === 114.351) &&
+            coords.calibration.some((p) => p.name === '食堂'));
+        check('新格式中 center 元数据不被误判为标定区而抛错',
+            coords.calibration.every((p) => p.name !== 'center'));
+        check('新格式中非 CAMPUS_ZONES 标注点被忽略',
+            coords.calibration.every((p) => p.name !== '未知建筑'));
+
+        fs.writeFileSync(calFile, JSON.stringify({ center: { lng: 114.36, lat: 30.54 }, zones: [] }));
+        coords = loadCoordinates(calFile);
+        check('新格式 zones 为空时安全返回空标定', coords.calibration.length === 0);
     } finally {
         try { fs.rmSync(calDir, { recursive: true, force: true }); } catch (e) { /* 清理失败不影响结论 */ }
     }

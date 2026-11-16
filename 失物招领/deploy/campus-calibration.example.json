@@ -1,5 +1,5 @@
 {
-  "_说明": "校区 GCJ-02 实测标定模板。复制为 data/campus-calibration.json 后填入真实值（data/ 已在 .gitignore 中，不会入库）。坐标必须用腾讯坐标拾取器 https://lbs.qq.com/getPoint/ 在校园地图上逐点点击取得——它输出的就是 GCJ-02，可直接使用；不要用 GPS 原始 WGS-84 值，否则会整体偏移。下面坐标故意留空，误复制也不会启用真实地图。",
+  "_说明": "校区 GCJ-02 实测标定模板。复制为 data/campus-calibration.json 后填入真实值（data/ 已在 .gitignore 中，不会入库）。坐标必须用腾讯坐标拾取器 https://lbs.qq.com/getPoint/ 在校园地图上逐点点击取得——它输出的就是 GCJ-02，可直接使用；不要用 GPS 原始 WGS-84 值，否则会整体偏移。下面坐标故意留空，误复制也不会启用真实地图。本文件为 center+zones 新格式；map-config.js 与 coordinates.js 均已兼容，旧版以区域名为键的写法仍可用。zones 的 name 必须与 public/js/campus-map.js 的 CAMPUS_ZONES 完全一致才会参与功能区坐标映射。",
   "campus": "示例校区（请替换为实际校区名）",
   "center": {
     "lng": null,
