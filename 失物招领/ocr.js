@@ -84,7 +84,8 @@ async function recognize(image) {
   }
 
   const base64 = decoded.bytes.toString('base64');
-  const payload = JSON.stringify({ ImageBase64: base64, LanguageType: 'zh_cn' });
+  // 腾讯云 GeneralBasicOCR 合法枚举：zh / en / auto 等；'zh_cn' 会报 LanguageNotSupport。
+  const payload = JSON.stringify({ ImageBase64: base64, LanguageType: 'zh' });
   const timestamp = Math.floor(Date.now() / 1000);
 
   let response;

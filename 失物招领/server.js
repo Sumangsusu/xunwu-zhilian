@@ -24,7 +24,10 @@ app.use(helmet({
   strictTransportSecurity: config.cookieSecure ? undefined : false,
   contentSecurityPolicy: { directives: {
     // 现有页面使用内联脚本及事件处理器。动态内容在前端转义。
-    scriptSrc: ["'self'", "'unsafe-inline'", ...mapSources],
+    // 'unsafe-eval' 供本地 TensorFlow.js 初始化（智能识别页的 MobileNet 物体识别）：
+    // TF.js 2.8.6 在加载时用 Function() 做环境探测，缺此项会抛 EvalError 导致 tf 为空对象、
+    // 报 "tf.ready is not a function"。物体识别纯浏览器端运行，不依赖任何云端额度。
+    scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", ...mapSources],
     scriptSrcAttr: ["'unsafe-inline'"],
     connectSrc: ["'self'", ...mapSources],
     imgSrc: ["'self'", 'data:', 'blob:', ...mapSources],

@@ -127,7 +127,18 @@ function buildMapConfig() {
  */
 function mapCspSources() {
   if (!buildMapConfig().enabled) return [];
-  return ['https://map.qq.com', 'https://*.map.qq.com', 'https://*.qq.com'];
+  // 腾讯地图 GL 除了 map.qq.com 系列，还会从以下官方 CDN 取资源：
+  //   - *.qpic.cn ：地图样式脚本（如 mapstyle.qpic.cn/.../style.js），走 connect-src，
+  //                 被拦会导致底图无样式、瓦片不渲染（容器控件仍在，表现为"空白地图"）；
+  //   - *.gtimg.com：栅格/矢量瓦片图片，被拦则底图一片浅灰。
+  // 两者均为腾讯官方静态资源域，仅 HTTPS，随地图启用一并放行到 script/connect/img/worker-src。
+  return [
+    'https://map.qq.com',
+    'https://*.map.qq.com',
+    'https://*.qq.com',
+    'https://*.qpic.cn',
+    'https://*.gtimg.com'
+  ];
 }
 
 module.exports = { buildMapConfig, mapCspSources, ALLOWED_HOST };

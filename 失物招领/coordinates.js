@@ -16,6 +16,10 @@ function validPair(a, b, minA, maxA, minB, maxB) {
     Number.isFinite(b) && b >= minB && b <= maxB;
 }
 
+// 标定文件历史上存在两种写法，同一路径 data/campus-calibration.json：
+//   旧格式（DEPLOY.md / migrate-coords.js）：{ "图书馆": { lng, lat }, ... }
+//   新格式（map-config.js / 验收脚本）：{ center:{lng,lat}, zoom, zones:[{name,lng,lat},...] }
+// 两种都在此接受，避免写入一种格式时另一种消费者解析失败导致服务端启动崩溃。
 function loadCalibration() {
   let source;
   try {
@@ -27,13 +31,29 @@ function loadCalibration() {
   if (!source || Array.isArray(source) || typeof source !== 'object') {
     throw new Error('标定表应为以 CAMPUS_ZONES 区域名称为键的 JSON 对象');
   }
+
+  // 新格式：取 zones 数组里的 {name,lng,lat}；center/zoom 不是功能区，忽略。
+  if (Array.isArray(source.zones)) {
+    const seen = new Map();
+    for (const point of source.zones) {
+      if (!point || typeof point.name !== 'string' || !validPair(point.lng, point.lat, -180, 180, -90, 90)) continue;
+      const zone = zones.find((entry) => entry.name === point.name);
+      if (!zone) continue; // 非 CAMPUS_ZONES 的标注点不影响坐标映射
+      seen.set(point.name, { ...zone, lng: point.lng, lat: point.lat });
+    }
+    return Array.from(seen.values());
+  }
+
+  // 旧格式：键即 CAMPUS_ZONES 区域名；center 等元数据键跳过而非误报非法。
+  const metaKeys = new Set(['center', 'zoom', 'campus', '_说明']);
   return Object.entries(source).map(([name, point]) => {
+    if (metaKeys.has(name)) return null;
     const zone = zones.find((entry) => entry.name === name);
     if (!zone || !point || !validPair(point.lng, point.lat, -180, 180, -90, 90)) {
       throw new Error('无效的 GCJ-02 标定区：' + name);
     }
     return { ...zone, lng: point.lng, lat: point.lat };
-  });
+  }).filter(Boolean);
 }
 
 const calibration = loadCalibration();
