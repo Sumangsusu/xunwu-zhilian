@@ -182,5 +182,101 @@ const modelsOk = fs.existsSync(path.join(ROOT, 'public/models/mobilenet/model.js
     fs.existsSync(path.join(ROOT, 'public/vendor/tf.min.js'));
 check('本地模型与推理库齐备', modelsOk);
 
+// ==================== 6. 模型推理正确性（2026-11-18 "电脑被识别成信封"修复） ====================
+// 用 vm 真实加载识别页最后一段内联脚本，直接调用其类目聚合与映射函数做单测，
+// 避免以后改动悄悄回退（归一化 / 聚合 / 拒识 任一丢失都会让准确率大幅退化）。
+const inlineBlocks = [];
+{
+    const reInline = /<script>([\s\S]*?)<\/script>/g;
+    let mm;
+    while ((mm = reInline.exec(rec)) !== null) inlineBlocks.push(mm[1]);
+}
+check('识别页内联脚本可提取', inlineBlocks.length > 0, inlineBlocks.length + ' 块');
+
+const labelBox = { window: {} };
+try {
+    vm.runInNewContext(fs.readFileSync(path.join(ROOT, 'public/vendor/imagenet_labels.js'), 'utf8'), labelBox);
+} catch (e) { /* 标签表缺失时下面断言会失败 */ }
+const LABELS = labelBox.window.IMAGENET_LABELS || [];
+check('ImageNet 标签表完整（1001 类）', LABELS.length === 1001, '实际 ' + LABELS.length);
+
+// 6.1 关键在于「预处理数值域」：必须是 [0,1]，否则模型整体半瞎
+check('推理前将像素归一化到 [0,1]（核心修复）',
+    /\.div\(255\)\s*\.expandDims\(0\)/.test(rec) && !/const batched = img\.expandDims\(0\)/.test(rec));
+// 6.2 聚合需要更多候选
+check('推理取 top-20 供类目聚合', /topK\(probs,\s*20\)/.test(rec));
+// 6.3 不硬猜：低置信度拒识
+check('低置信度拒识（<22% 判为未能确定）',
+    /<\s*0\.22/.test(rec) && /未能确定/.test(rec));
+
+let recBox = null;
+if (inlineBlocks.length) {
+    const stubEl = () => ({
+        classList: { add() { }, remove() { }, toggle() { } },
+        style: {}, textContent: '', innerHTML: '', value: '', disabled: false,
+        addEventListener() { }, appendChild() { }, scrollIntoView() { }
+    });
+    recBox = {
+        tf: {}, IMAGENET_LABELS: LABELS,
+        document: {
+            getElementById: () => stubEl(), querySelector: () => stubEl(),
+            addEventListener() { }, createElement: () => stubEl()
+        },
+        DB: { matchByFeatures: async () => [] },
+        requireAuth: async () => true,
+        alert() { },
+        sessionStorage: { getItem: () => null, setItem() { }, removeItem() { } },
+        console: { log() { }, warn() { }, error() { } },
+        setTimeout, clearTimeout, Map, Set, Promise, JSON, Math
+    };
+    recBox.window = recBox;
+    vm.createContext(recBox);
+    try {
+        vm.runInContext(inlineBlocks[inlineBlocks.length - 1], recBox);
+    } catch (e) {
+        recBox = null;
+        check('内联脚本可在 vm 中加载', false, e.message);
+    }
+}
+
+function runRec(expr) { return vm.runInContext(expr, recBox); }
+function runJson(expr) {
+    try { return JSON.parse(runRec('JSON.stringify(' + expr + ')')); }
+    catch (e) { return null; }
+}
+
+if (recBox) {
+    check('内联脚本可在 vm 中加载（含聚合函数）', String(runRec('typeof aggregateByGroup')) === 'function');
+
+    // 笔记本：desktop computer + notebook + laptop + hand-held computer 必须合并成「笔记本电脑」
+    const nb = runJson(
+        "mapPredictions([" +
+        "{className:'desktop computer', probability:0.488}," +
+        "{className:'screen, CRT screen', probability:0.114}," +
+        "{className:'notebook, notebook computer', probability:0.092}," +
+        "{className:'laptop, laptop computer', probability:0.069}," +
+        "{className:'hand-held computer', probability:0.012}" +
+        "])");
+    check('笔记本多类聚合成「笔记本电脑」且超过单类',
+        !!nb && nb.primary.type === '笔记本电脑' && nb.primary.prob > 0.65,
+        nb ? (nb.primary.type + ' ' + Math.round(nb.primary.prob * 1000) / 10 + '%') : '无法执行');
+
+    // 精确匹配：window screen（纱窗）不能被当成显示器
+    const ws = runJson("aggregateByGroup([{className:'window screen', probability:0.9}])");
+    check('「window screen」不被误判为显示器', Array.isArray(ws) && ws.length === 0, JSON.stringify(ws));
+
+    // 信封仍能正确识别
+    const env = runJson("mapPredictions([{className:'envelope', probability:0.7}])");
+    check('信封映射为「信封 / 证件文件」',
+        !!env && env.primary.type === '信封' && env.primary.category === '证件文件',
+        env ? env.primary.type : '无法执行');
+
+    // 钱包别名归组
+    const wal = runJson("mapPredictions([{className:'wallet, billfold, notecase, wallet', probability:0.9}])");
+    check('钱包映射为「钱包 / 箱包类」',
+        !!wal && wal.primary.type === '钱包' && wal.primary.category === '箱包类',
+        wal ? wal.primary.type : '无法执行');
+}
+
 console.log('\n汇总：' + pass + '/' + total + ' 项通过');
 process.exit(pass === total ? 0 : 1);

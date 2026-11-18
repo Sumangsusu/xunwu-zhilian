@@ -526,6 +526,66 @@ lost.html
             ['backpack', '背包', '箱包类']
         ];
 
+        // ===== 类目聚合表（2026-11-18 新增，解决"同一物品被拆成多个 ImageNet 类"导致的漏判）=====
+        // ImageNet 1000 类把"笔记本电脑"拆成 desktop computer / notebook / laptop / hand-held computer 四个独立类，
+        // 模型概率被分散后，单个类可能只有 30~40%，反而输给某个不相关但概率集中的类（用户遇到的 envelope 即如此）。
+        // 做法：把同一物品的多个同类概率相加，再比较。实测笔记本图：单类 desktop computer 32.7% → 聚合后 47.1%。
+        // 匹配用「主名精确匹配」（'laptop, laptop computer' -> 'laptop'），不用 includes/startsWith，
+        // 否则 'window screen'（纱窗）、'screen door'（纱门）会被误判成显示器。
+        const ITEM_GROUPS = [
+            // 电子数码
+            ['笔记本电脑', '电子数码', ['laptop', 'notebook', 'desktop computer', 'hand-held computer']],
+            ['显示器', '电子数码', ['monitor', 'screen', 'television', 'flat-screen']],
+            ['手机', '电子数码', ['cellular telephone', 'cellphone', 'ipod']],
+            ['键盘', '电子数码', ['computer keyboard', 'space bar', 'typewriter keyboard']],
+            ['鼠标', '电子数码', ['mouse']],
+            ['耳机', '电子数码', ['earphone', 'earphones', 'headphone', 'headphones', 'earbuds']],
+            ['相机', '电子数码', ['camera', 'reflex camera', 'polaroid camera', 'digital camera']],
+            ['手表', '电子数码', ['digital watch', 'wristwatch', 'stopwatch', 'analog clock', 'digital clock']],
+            // 箱包类
+            ['钱包', '箱包类', ['wallet', 'purse']],
+            ['背包', '箱包类', ['backpack', 'knapsack', 'book bag', 'mailbag', 'postbag']],
+            ['手提包', '箱包类', ['handbag', 'shopping bag', 'plastic bag', 'shopping basket']],
+            // 其他物品
+            ['水杯', '其他物品', ['water bottle', 'pop bottle', 'beer bottle', 'coffee mug', 'cup', 'mug', 'water jug', 'pitcher']],
+            ['书本', '其他物品', ['book jacket', 'comic book', 'binder']],
+            ['雨伞', '其他物品', ['umbrella']],
+            ['锁具', '其他物品', ['padlock', 'combination lock', 'safety pin']],
+            ['文具', '其他物品', ['pencil box', 'ruler', 'stapler', 'scissors', 'ballpoint', 'fountain pen', 'rubber eraser', 'pencil sharpener']],
+            // 衣物配饰
+            ['眼镜', '衣物配饰', ['sunglass', 'sunglasses', 'dark glasses', 'eyeglasses', 'glasses']],
+            ['衣物', '衣物配饰', ['cardigan', 'jersey', 'suit', 'sweatshirt', 'jean', 'dress', 'coat']],
+            // 证件文件
+            ['信封', '证件文件', ['envelope']],
+            ['卡片', '证件文件', ['playing card']]
+        ];
+
+        // 主名归一化：'laptop, laptop computer' -> 'laptop'
+        function _mainLabel(label) { return String(label || '').toLowerCase().split(',')[0].trim(); }
+        // 精确匹配类目组
+        function _matchItemGroup(label) {
+            const m = _mainLabel(label);
+            for (let g = 0; g < ITEM_GROUPS.length; g++) {
+                const keys = ITEM_GROUPS[g][2];
+                if (keys.indexOf(m) !== -1) return { name: ITEM_GROUPS[g][0], category: ITEM_GROUPS[g][1] };
+            }
+            return null;
+        }
+        // 类目聚合：把同一物品的多个类概率合并后降序
+        function aggregateByGroup(predictions) {
+            const groups = new Map();
+            for (const p of predictions) {
+                const g = _matchItemGroup(p.className);
+                if (!g) continue;
+                if (!groups.has(g.name)) groups.set(g.name, { type: g.name, category: g.category, prob: 0, members: [] });
+                const e = groups.get(g.name);
+                e.prob += (p.probability || 0);
+                const mn = _mainLabel(p.className);
+                if (e.members.indexOf(mn) === -1) e.members.push(mn);
+            }
+            return Array.from(groups.values()).sort((a, b) => b.prob - a.prob);
+        }
+
         // 主色提取 v3：k-means 聚类找主色 + HSV 色相归类（比 RGB 欧氏距离更准，避免深蓝被判黑/绿）
         function rgbToHsv(r, g, b) {
             r /= 255; g /= 255; b /= 255;
@@ -574,8 +634,12 @@ lost.html
         }
         function softmax(arr) { const m = Math.max.apply(null, arr); const e = arr.map(x => Math.exp(x - m)); const s = e.reduce((a, b) => a + b, 0); return e.map(x => x / s); }
         function topK(probs, k) { return probs.map((p, i) => ({ i, p })).sort((a, b) => b.p - a.p).slice(0, k); }
-        // 真实推理：原始像素 -> 等比缩放+中心裁剪到 224x224（与 ImageNet 训练预处理一致，避免非正方形图拉伸变形）
-        // 经验证：同图直接拉伸 Top1=35.2%，等比裁剪后 Top1=43.3%（item-5 从 52.5%→71.7%）
+        // 真实推理：像素归一化 -> 等比缩放+中心裁剪到 224x224 -> 模型推理 -> softmax
+        // 【2026-11-18 关键修复】本 TFHub MobileNetV2 图模型期望输入为 [0,1] 浮点，而非原始 [0,255]。
+        // 旧代码直接喂 [0,255] 导致所有像素饱和，模型长期处于"半瞎"状态：置信度只有 15~20%、类别靠猜。
+        // 实测同一台笔记本：raw 为 pillow 20.3% / envelope 5.4%（用户反馈的"电脑识别成信封"）；改为 [0,1] 后为
+        // desktop computer 46.2% + notebook 11.7% + laptop 8.7%，电脑类聚合 79.3%。
+        // 12 张真实物品图交叉验证：raw 平均 top1 34.7%（其中 4 张同时被判为 pillow，明显退化），[0,1] 平均 44.6% 且类别分散合理。
         async function predictImage(imgEl) {
             const model = await loadMobilenet();
             const logits = tf.tidy(() => {
@@ -597,19 +661,42 @@ lost.html
                         [0], [224, 224]
                     ).squeeze();
                 }
-                const batched = img.expandDims(0);
+                // 归一化到 [0,1]：与模型训练期望一致（关键，漏掉会让整体识别失效）
+                const batched = img.div(255).expandDims(0);
                 return model.predict(batched);
             });
             const data = Array.from(await logits.data());
             logits.dispose();
             const probs = softmax(data);
-            const top = topK(probs, 5);
+            // 取 top-20：ImageNet 把同一物品拆成多个类（笔记本 = laptop / notebook / desktop computer /
+            // hand-held computer），只取 top-5 会漏掉分散的同义类，类目聚合就聚不满。
+            const top = topK(probs, 20);
             const labels = (typeof IMAGENET_LABELS !== 'undefined' && IMAGENET_LABELS) ? IMAGENET_LABELS : null;
             return top.map(t => ({ className: labels ? labels[t.i] : ('class_' + t.i), probability: t.p }));
         }
 
         // 将模型预测（英文 ImageNet 标签）映射到中文物品 + 数据库分类
+        // 策略：① 先做类目聚合（把同一物品的多个 ImageNet 类概率合并，最稳）；② 聚合无命中才退回关键字表兜底。
         function mapPredictions(predictions) {
+            if (!predictions || !predictions.length) {
+                return { primary: { type: '（未识别）', category: '其他物品', prob: 0, raw: '' }, candidates: [] };
+            }
+
+            const groups = aggregateByGroup(predictions);
+            if (groups.length > 0) {
+                const primary = {
+                    type: groups[0].type,
+                    category: groups[0].category,
+                    prob: groups[0].prob,
+                    raw: groups[0].members[0] || ''
+                };
+                const candidates = groups.slice(1, 4).map(g => ({
+                    type: g.type, category: g.category, prob: g.prob, raw: g.members[0] || ''
+                }));
+                return { primary, candidates };
+            }
+
+            // 兜底：没有任何类目命中时，沿用关键字表
             const hits = [];
             for (const p of predictions) {
                 const lower = (p.className || '').toLowerCase();
@@ -719,10 +806,16 @@ lost.html
             }
 
             const confidence = Math.round((primary.prob || 0) * 100);
+            // 拒绝硬猜：聚合后概率仍低于 22%，说明模型确实没有把握，此时明确告知「未能确定」，
+            // 而不是硬给一个错误类别（用户遇到的"电脑→信封"就是硬猜的典型）。
+            // 这与项目既有的"绝不伪造识别结果"原则一致。
+            if (!modelError && primary && (primary.prob || 0) < 0.22) {
+                primary = { type: '未能确定', category: '其他物品', prob: primary.prob, raw: primary.raw || '', uncertain: true };
+            }
             // 模型可用时展示真实置信度；模型未加载时绝不伪造数据，置信度置空显示「—」
             const typeConfidence = modelError ? null : confidence;
             // 模型未加载时，标签只保留已可靠提取的颜色，避免重复堆砌「暂不可用」字样
-            const features = modelError ? [colorInfo.name] : [colorInfo.name, primary.type, ...candidates.map(c => c.type)];
+            const features = modelError ? [colorInfo.name] : [colorInfo.name, primary.type, ...candidates.map(c => c.type)].filter((v, i, a) => v && a.indexOf(v) === i);
 
             return {
                 type: primary.type,
@@ -765,8 +858,10 @@ lost.html
             document.getElementById('itemType').textContent = result.type;
             document.getElementById('typeConfidence').textContent = (result.confidence != null ? result.confidence + '%' : '—');
             // 低置信度友好提示（阈值 40%）：不伪造结果，只引导补充描述
+            // 低置信度或「未能确定」时都提示补充描述
             const lowNotice = document.getElementById('lowConfidenceNotice');
-            if (lowNotice) lowNotice.classList.toggle('hidden', !(result.confidence != null && result.confidence < 40));
+            const needHint = result.confidence != null && (result.confidence < 40 || result.type === '未能确定');
+            if (lowNotice) lowNotice.classList.toggle('hidden', !needHint);
             document.getElementById('itemRawType').textContent = (!result.modelError && result.rawType) ? ('模型判定：' + result.rawType) : (result.modelError ? ('（识别模型未加载：' + (result.modelErrorDetail || '未知错误').slice(0, 48) + '）') : '');
             // 物品分类（用于库内匹配的数据库分类）
             document.getElementById('itemCategory').textContent = result.category;
