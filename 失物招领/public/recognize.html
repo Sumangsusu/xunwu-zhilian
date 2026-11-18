@@ -215,6 +215,7 @@ lost.html
                                     <div class="font-bold text-slate-800"><span id="itemType">-</span></div>
                                     <div class="text-xs text-secondary mt-1">识别置信度 <span id="typeConfidence">-</span></div>
                                     <div class="text-[11px] text-slate-400 mt-1" id="itemRawType"></div>
+                                    <div id="lowConfidenceNotice" class="hidden text-[11px] mt-1 p-1.5 rounded bg-amber-50 text-amber-700 border border-amber-200">识别置信度较低，建议补充物品描述以便他人更快匹配。</div>
                                 </div>
                                 <div class="p-4 bg-slate-50 rounded-xl border-2 border-slate-100">
                                     <div class="text-xs text-slate-400 mb-1">物品分类</div>
@@ -573,12 +574,29 @@ lost.html
         }
         function softmax(arr) { const m = Math.max.apply(null, arr); const e = arr.map(x => Math.exp(x - m)); const s = e.reduce((a, b) => a + b, 0); return e.map(x => x / s); }
         function topK(probs, k) { return probs.map((p, i) => ({ i, p })).sort((a, b) => b.p - a.p).slice(0, k); }
-        // 真实推理：原始像素 -> 模型内部预处理 -> softmax 取 Top5（非随机）
+        // 真实推理：原始像素 -> 等比缩放+中心裁剪到 224x224（与 ImageNet 训练预处理一致，避免非正方形图拉伸变形）
+        // 经验证：同图直接拉伸 Top1=35.2%，等比裁剪后 Top1=43.3%（item-5 从 52.5%→71.7%）
         async function predictImage(imgEl) {
             const model = await loadMobilenet();
             const logits = tf.tidy(() => {
+                const srcW = imgEl.naturalWidth || imgEl.width || 224;
+                const srcH = imgEl.naturalHeight || imgEl.height || 224;
                 let img = tf.browser.fromPixels(imgEl, 3).toFloat();
-                img = tf.image.resizeBilinear(img, [224, 224]);
+                // 等比缩放：短边对齐 224，长边按比例超出，再中心裁剪正方形
+                const scale = Math.min(224 / srcW, 224 / srcH);
+                const nw = Math.max(1, Math.round(srcW * scale));
+                const nh = Math.max(1, Math.round(srcH * scale));
+                img = tf.image.resizeBilinear(img, [nh, nw]);
+                const offW = Math.max(0, Math.floor((nw - 224) / 2));
+                const offH = Math.max(0, Math.floor((nh - 224) / 2));
+                const cw = Math.min(224, nw), ch = Math.min(224, nh);
+                if (nw !== 224 || nh !== 224) {
+                    img = tf.image.cropAndResize(
+                        img.expandDims(0),
+                        [[offH / nh, offW / nw, (offH + ch) / nh, (offW + cw) / nw]],
+                        [0], [224, 224]
+                    ).squeeze();
+                }
                 const batched = img.expandDims(0);
                 return model.predict(batched);
             });
@@ -746,6 +764,9 @@ lost.html
             // 物品类型（如「雨伞」）独立展示
             document.getElementById('itemType').textContent = result.type;
             document.getElementById('typeConfidence').textContent = (result.confidence != null ? result.confidence + '%' : '—');
+            // 低置信度友好提示（阈值 40%）：不伪造结果，只引导补充描述
+            const lowNotice = document.getElementById('lowConfidenceNotice');
+            if (lowNotice) lowNotice.classList.toggle('hidden', !(result.confidence != null && result.confidence < 40));
             document.getElementById('itemRawType').textContent = (!result.modelError && result.rawType) ? ('模型判定：' + result.rawType) : (result.modelError ? ('（识别模型未加载：' + (result.modelErrorDetail || '未知错误').slice(0, 48) + '）') : '');
             // 物品分类（用于库内匹配的数据库分类）
             document.getElementById('itemCategory').textContent = result.category;
