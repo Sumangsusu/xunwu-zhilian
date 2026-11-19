@@ -175,3 +175,5 @@ node scripts/check-e2e-flow.js
 ## 站内寻物助手
 
 已集成 UniFound 适配助手。启动后，登录并点击导航中的“寻物助手”，或访问 /agent.html。默认无需模型密钥，支持多轮线索、相似启事、附近搜索及防冒领详情。配置与验证记录见 [AGENT.md](AGENT.md)。
+
+API 密钥填写与排错的逐步教程见 [api秘钥配置readme.md](api秘钥配置readme.md)。
