@@ -276,6 +276,44 @@ if (recBox) {
     check('钱包映射为「钱包 / 箱包类」',
         !!wal && wal.primary.type === '钱包' && wal.primary.category === '箱包类',
         wal ? wal.primary.type : '无法执行');
+
+    // 2026-11-19 花棉袄真实 top20（本地模型实测）：软质碎花衣物被拆成十几个细类，
+    // 聚合后必须归为「衣物」且概率 > 22% 拒识线，不能再落到 backpack 6% 或「未能确定」。
+    const coatTop20 = [
+        ['shower cap', 0.4077], ['mailbag, postbag', 0.1615], ['swimming trunks', 0.0489],
+        ['Windsor tie, Windsor knot', 0.0224], ['head cabbage', 0.0175], ['face powder', 0.0141],
+        ['bathing cap', 0.0123], ['stethoscope', 0.0123], ['diaper, nappy', 0.0105],
+        ['stole', 0.0088], ['backpack', 0.0080], ['sleeping bag', 0.0078],
+        ['maraca', 0.0078], ['bonnet', 0.0077], ['apron', 0.0066], ['hair slide', 0.0062],
+        ['hamper', 0.0059], ['chocolate sauce', 0.0043], ['cleaver, meat cleaver', 0.0041],
+        ['punching bag', 0.0037]
+    ].map(([className, probability]) => `{'className':${JSON.stringify(className)},'probability':${probability}}`).join(',');
+    const coat = runJson('mapPredictions([' + coatTop20 + '])');
+    check('花棉袄 top20 聚合成「衣物」且越过拒识线',
+        !!coat && coat.primary.type === '衣物' && coat.primary.category === '衣物配饰' && coat.primary.prob > 0.22,
+        coat ? (coat.primary.type + ' ' + Math.round(coat.primary.prob * 1000) / 10 + '%') : '无法执行');
+    check('花棉袄聚合含多个软布料细类（shower cap/swimming trunks 等）',
+        !!coat && /shower cap/.test(coat.primary.raw || ''),
+        coat ? coat.primary.raw : '无法执行');
+
+    // 扩大的类别范围：乐器 / 运动 / 化妆品 / 玩具 都要能落到中文类目
+    const guitar = runJson("mapPredictions([{className:'acoustic guitar', probability:0.71}])");
+    check('扩类：吉他映射为「乐器」',
+        !!guitar && guitar.primary.type === '乐器', guitar ? guitar.primary.type : '无法执行');
+    const ball = runJson("mapPredictions([{className:'basketball', probability:0.83}])");
+    check('扩类：篮球映射为「运动用品」',
+        !!ball && ball.primary.type === '运动用品', ball ? ball.primary.type : '无法执行');
+    const lipstick = runJson("mapPredictions([{className:'lipstick', probability:0.68}])");
+    check('扩类：口红映射为「化妆品」',
+        !!lipstick && lipstick.primary.type === '化妆品', lipstick ? lipstick.primary.type : '无法执行');
+    const teddy = runJson("mapPredictions([{className:'teddy, teddy bear', probability:0.79}])");
+    check('扩类：泰迪熊映射为「玩具」',
+        !!teddy && teddy.primary.type === '玩具', teddy ? teddy.primary.type : '无法执行');
+
+    // 负向回归：扩类后不能把无关物误判（head cabbage 等食物类不应进任何组）
+    const cabbage = runJson("aggregateByGroup([{className:'head cabbage', probability:0.9}])");
+    check('负向：head cabbage 不进衣物/任何组', Array.isArray(cabbage) && cabbage.length === 0,
+        JSON.stringify(cabbage));
 }
 
 console.log('\n汇总：' + pass + '/' + total + ' 项通过');
