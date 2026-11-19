@@ -535,7 +535,7 @@ lost.html
         // 匹配用「主名精确匹配」（'laptop, laptop computer' -> 'laptop'），不用 includes/startsWith，
         // 否则 'window screen'（纱窗）、'screen door'（纱门）会被误判成显示器。
         const ITEM_GROUPS = [
-            // 电子数码
+            // ===== 电子数码 =====
             ['笔记本电脑', '电子数码', ['laptop', 'notebook', 'desktop computer', 'hand-held computer']],
             ['显示器', '电子数码', ['monitor', 'screen', 'television', 'flat-screen']],
             ['手机', '电子数码', ['cellular telephone', 'cellphone', 'ipod']],
@@ -543,21 +543,40 @@ lost.html
             ['鼠标', '电子数码', ['mouse']],
             ['耳机', '电子数码', ['earphone', 'earphones', 'headphone', 'headphones', 'earbuds']],
             ['相机', '电子数码', ['camera', 'reflex camera', 'polaroid camera', 'digital camera']],
-            ['手表', '电子数码', ['digital watch', 'wristwatch', 'stopwatch', 'analog clock', 'digital clock']],
-            // 箱包类
-            ['钱包', '箱包类', ['wallet', 'purse']],
+            ['手表', '电子数码', ['digital watch', 'wristwatch', 'stopwatch', 'analog clock', 'digital clock', 'wall clock']],
+            ['遥控器', '电子数码', ['remote control', 'remote']],
+            // ===== 箱包类 =====
+            ['钱包', '箱包类', ['wallet', 'billfold', 'notecase', 'purse']],
             ['背包', '箱包类', ['backpack', 'knapsack', 'book bag', 'mailbag', 'postbag']],
-            ['手提包', '箱包类', ['handbag', 'shopping bag', 'plastic bag', 'shopping basket']],
-            // 其他物品
-            ['水杯', '其他物品', ['water bottle', 'pop bottle', 'beer bottle', 'coffee mug', 'cup', 'mug', 'water jug', 'pitcher']],
-            ['书本', '其他物品', ['book jacket', 'comic book', 'binder']],
+            ['手提包', '箱包类', ['handbag', 'shopping bag', 'plastic bag', 'shopping basket', 'hamper']],
+            // ===== 衣物配饰 =====
+            // 2026-11-19 扩充：中式棉袄/卫衣/裙子等软质穿戴物在 ImageNet 无专门类，会被拆成
+            // shower cap / bathing cap / bonnet / stole / apron / swimming trunks / pajama 等十几个细类。
+            // 统一聚合成「衣物」大类，几类概率相加即可越过拒识阈值，不再误判为 backpack 或「未能确定」。
+            ['衣物', '衣物配饰', [
+                'coat', 'trench coat', 'fur coat', 'lab coat', 'cloak', 'cape', 'suit', 'wool',
+                'cardigan', 'jersey', 'sweatshirt', 'pajama', 'kimono', 'dress', 'gown', 'sarong',
+                'apron', 'stole', 'bow tie', 'windsor tie', 'bolo tie', 'scarf', 'veil',
+                'jean', 'miniskirt', 'bikini', 'swimming trunks', 'overskirt', 'hoopskirt',
+                'brassiere', 'diaper', 'sock', 'bathing cap', 'shower cap', 'bonnet',
+                'cowboy hat', 'sombrero', 'cowboy boot', 'loafer', 'sandal', 'mitten',
+                'academic gown', 'military uniform', 'bulletproof vest', 'vestment'
+            ]],
+            ['眼镜', '衣物配饰', ['sunglass', 'sunglasses', 'dark glasses', 'eyeglasses', 'glasses']],
+            ['首饰', '衣物配饰', ['necklace', 'bracelet', 'hair slide']],
+            // ===== 其他物品（扩大覆盖：让更多种类不再落入「未能确定」）=====
+            ['水杯', '其他物品', ['water bottle', 'pop bottle', 'beer bottle', 'coffee mug', 'cup', 'mug', 'water jug', 'pitcher', 'measuring cup', 'whiskey jug', 'wine bottle']],
+            ['书本', '其他物品', ['book jacket', 'comic book', 'binder', 'newspaper']],
             ['雨伞', '其他物品', ['umbrella']],
             ['锁具', '其他物品', ['padlock', 'combination lock', 'safety pin']],
             ['文具', '其他物品', ['pencil box', 'ruler', 'stapler', 'scissors', 'ballpoint', 'fountain pen', 'rubber eraser', 'pencil sharpener']],
-            // 衣物配饰
-            ['眼镜', '衣物配饰', ['sunglass', 'sunglasses', 'dark glasses', 'eyeglasses', 'glasses']],
-            ['衣物', '衣物配饰', ['cardigan', 'jersey', 'suit', 'sweatshirt', 'jean', 'dress', 'coat']],
-            // 证件文件
+            ['灯具', '其他物品', ['table lamp', 'lampshade', 'spotlight', 'torch']],
+            ['打火机', '其他物品', ['lighter', 'candle']],
+            ['乐器', '其他物品', ['acoustic guitar', 'electric guitar', 'violin', 'cello', 'harp', 'banjo', 'flute', 'drum', 'harmonica', 'grand piano', 'steel drum', 'whistle']],
+            ['运动用品', '其他物品', ['basketball', 'soccer ball', 'tennis ball', 'racket', 'baseball', 'golf ball', 'mountain bike', 'bicycle-built-for-two', 'football helmet', 'motor scooter']],
+            ['玩具', '其他物品', ['teddy', 'jigsaw puzzle', 'crossword puzzle', 'balloon', 'kite']],
+            ['化妆品', '其他物品', ['lipstick', 'face powder', 'perfume', 'hair spray', 'lotion', 'sunscreen']],
+            // ===== 证件文件 =====
             ['信封', '证件文件', ['envelope']],
             ['卡片', '证件文件', ['playing card']]
         ];
