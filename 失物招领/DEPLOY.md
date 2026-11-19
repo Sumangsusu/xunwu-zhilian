@@ -203,3 +203,7 @@ docker compose up -d --wait
 原始 ZIP 没有 Git 元数据。以实际团队仓库的干净基线为准，通过 PR 合入 `feat/deploy`，B 使用 `feat/map`。合入前运行 `git status --short`，并检查 `git ls-files`、`git grep` 和公开仓库历史，确保环境文件、证书、数据库、上传内容与真实个人信息没有进入版本控制。
 
 Docker 安装步骤参考 [Docker Engine 官方 Ubuntu 指南](https://docs.docker.com/engine/install/ubuntu/)。
+
+## 寻物助手部署
+
+助手随 Node 主服务和 Docker 镜像启动。默认使用站内检索；如需模型辅助，在服务器 .env 配置 AGENT_PROVIDER / AGENT_API_KEY / AGENT_BASE_URL / AGENT_MODEL，重建并重启容器。密钥只放服务器。详情见 [AGENT.md](AGENT.md)。

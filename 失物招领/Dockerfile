@@ -12,6 +12,7 @@ COPY --from=dependencies /app/node_modules ./node_modules
 COPY --chown=node:node package.json *.js ./
 COPY --chown=node:node public ./public
 COPY --chown=node:node scripts ./scripts
+COPY --chown=node:node agent ./agent
 RUN install -d -o node -g node -m 0750 /app/data /app/public/uploads
 USER node
 EXPOSE 3000

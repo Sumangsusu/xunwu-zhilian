@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>寻物助手 · 寻物智联</title>
+<script src="js/app-base.js"></script>
+<link rel="stylesheet" href="css/agent.css">
+</head>
+<body data-page="agent">
+<header class="agent-header">
+<a class="brand" href="index.html"><span class="brand-mark" aria-hidden="true">寻</span>寻物智联</a>
+<nav aria-label="主导航"><a href="lost.html">失物列表</a><a href="found.html">招领列表</a><a href="agent.html" aria-current="page">寻物助手</a><a href="profile.html">个人中心</a></nav>
+<span id="navUsername" class="user-name"></span>
+</header>
+<main class="agent-layout">
+<section class="intro"><p class="eyebrow">CAMPUS LOST & FOUND / 校园里的寻物伙伴</p>
+<h1>把线索告诉我，<br class="mobile-break">一起找回来。</h1>
+<p>从一句描述开始，查找站内启事、补充物品特征，让下一步更清楚。</p></section>
+<section class="chat-panel paper" aria-label="寻物对话">
+<div class="panel-top"><div><span class="status-dot"></span><strong>寻物助手</strong><span id="modeBadge" class="small">站内检索</span></div><button type="button" id="resetChat" class="text-button">新对话 ↗</button></div>
+<div id="messages" class="messages" role="log" aria-live="polite" aria-label="对话记录"></div>
+<div id="followUps" class="follow-ups"></div>
+<form id="chatForm" class="composer">
+<label for="message">补充你的线索</label>
+<textarea id="message" rows="3" maxlength="2000" placeholder="例如：我在图书馆丢了一个黑色保温杯" required></textarea>
+<div class="composer-bottom"><span class="small">Enter 发送 · Shift + Enter 换行</span><button id="sendMessage" type="submit" class="primary">发送线索 ↗</button></div>
+<p id="requestState" role="status" class="small"></p>
+</form>
+</section>
+<aside class="sidebar">
+<section class="paper clue-panel"><p class="eyebrow">START HERE / 从这里开始</p><h2>你想找什么？</h2>
+<div class="suggestions"><button data-prompt="我在图书馆丢了黑色水杯">⌕ 图书馆的黑色水杯</button><button data-prompt="我捡到了一张校园卡">▤ 帮校园卡找到主人</button><button data-prompt="我的发布">↗ 查看我的启事状态</button></div>
+<div class="quick-links"><a href="publish.html">＋ 发布启事</a><a href="recognize.html">▧ 图片识别</a><a href="heatmap.html">◎ 失物热力图</a></div></section>
+<section class="paper map-panel"><div class="section-title"><h2>缩小寻找范围</h2><button id="clearLocation" type="button" class="text-button">清除选点</button></div>
+<p id="mapMode" class="small">正在加载校园地图…</p><div id="agentMap" aria-label="搜索位置地图"></div>
+<p id="selectedLocation" class="small" aria-live="polite">点击地图选点，也可以直接输入地点。</p>
+<label id="radiusLabel" class="radius" hidden>范围 <select id="radius"><option value="500">500 米</option><option value="1000" selected>1 公里</option><option value="2000">2 公里</option><option value="5000">5 公里</option></select></label>
+<button type="button" id="nearbySearch" class="secondary" disabled>查找选点附近的物品</button>
+</section>
+<section class="paper settings-panel"><label for="agentMode"><strong>查询方式</strong></label><select id="agentMode"><option value="local">站内检索 · 无需模型</option value="model" disabled>模型辅助 · 尚未配置</option></select>
+<p id="modelNote" class="small">使用网站现有数据检索。对话仅保留在当前页面，刷新后清空。</p>
+<p class="small">联系方式在详情中按网站防冒领流程解锁。请勿在聊天中输入手机号或防冒领答案。</p></section>
+</aside>
+</main>
+<footer>每一条线索，都可能让失物回家。<a href="feedback.html">意见反馈</a></footer>
+<dialog id="itemDialog" aria-labelledby="detailTitle"><div class="dialog-top"><h2 id="detailTitle">启事详情</h2><button type="button" id="closeDetail" class="text-button" aria-label="关闭详情">关闭 ×</button></div><div id="detailBody"></div></dialog>
+<script src="js/common.js"></script><script src="js/campus-map.js"></script><script src="js/agent.js"></script>
+</body></html>

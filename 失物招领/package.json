@@ -5,7 +5,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "build": "tailwindcss -i tailwind.css -o public/css/tailwind.css --minify"
+    "build": "tailwindcss -i tailwind.css -o public/css/tailwind.css --minify",
+    "test:agent": "node --test scripts/agent.test.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

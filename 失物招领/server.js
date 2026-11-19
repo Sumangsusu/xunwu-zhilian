@@ -102,6 +102,8 @@ function authRequired(req, res, next) {
   next();
 }
 
+require('./agent').mount(app, authRequired, rateLimit);
+
 // 管理员鉴权：在已登录基础上校验角色
 function requireAdmin(req, res, next) {
   if (!req.user || req.user.role !== 'admin') {
@@ -560,7 +562,7 @@ app.get('/admin', (_req, res) => {
 });
 
 // 多页面路由（登录、失物、招领、识别、发布、个人中心）
-['login', 'lost', 'found', 'recognize', 'publish', 'profile', 'feedback', 'heatmap'].forEach((page) => {
+['login', 'lost', 'found', 'recognize', 'publish', 'profile', 'feedback', 'heatmap', 'agent'].forEach((page) => {
   app.get('/' + page, (_req, res) => {
     res.sendFile(path.join(__dirname, 'public', page + '.html'));
   });
