@@ -168,7 +168,7 @@ profile.html
                                 <div id="publishImagePlaceholder" class="text-center">
                                     <div class="w-14 h-14 mx-auto mb-3 rounded-xl bg-primary/10 text-primary flex items-center justify-center text-xl"><i class="fa fa-camera"></i></div>
                                     <p class="text-sm font-medium text-slate-700">点击上传物品照片</p>
-                                    <p class="text-xs text-slate-400 mt-1">JPG / PNG，单张不超过 2MB</p>
+                                    <p class="text-xs text-slate-400 mt-1">JPG / PNG，单张不超过 5MB</p>
                                 </div>
                                 <img id="publishImagePreview" alt="物品照片" class="hidden max-h-44 mx-auto rounded-xl border-2 border-[var(--ink)]">
                                 <button type="button" id="publishImageClear" class="hidden mt-3 mx-auto px-4 py-1.5 text-xs rounded-lg border-2 border-red-200 text-red-500 hover:bg-red-50">清除图片</button>
@@ -507,8 +507,8 @@ profile.html
             input.addEventListener('change', function () {
                 const file = this.files[0];
                 if (!file || !file.type.startsWith('image/')) return;
-                if (file.size > 2 * 1024 * 1024) {
-                    alert('图片不能超过 2MB，请压缩后重试');
+                if (file.size > 5 * 1024 * 1024) {
+                    alert('图片不能超过 5MB，请压缩后重试');
                     this.value = '';
                     return;
                 }
