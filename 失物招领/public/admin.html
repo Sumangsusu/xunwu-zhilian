@@ -393,16 +393,16 @@
         window.usersData = users.users;
         const tbody = document.getElementById('usersTable');
         tbody.innerHTML = users.users.map(u => `
-            <tr class="border-t border-slate-200/60 row-link cursor-pointer" onclick="showUserDetail(${u.id})">
-                <td class="px-6 py-3 text-slate-400">${u.id}</td>
-                <td class="px-6 py-3 font-medium text-slate-800">${u.username}</td>
-                <td class="px-6 py-3 text-slate-600">${u.phone}</td>
+            <tr class="border-t border-slate-200/60 row-link cursor-pointer" onclick="showUserDetail(${Number(u.id) || 0})">
+                <td class="px-6 py-3 text-slate-400">${Number(u.id) || 0}</td>
+                <td class="px-6 py-3 font-medium text-slate-800">${esc(u.username)}</td>
+                <td class="px-6 py-3 text-slate-600">${esc(u.phone)}</td>
                 <td class="px-6 py-3">
                     <span class="px-2 py-0.5 rounded-full text-xs font-medium ${u.role === 'admin' ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-600'}">
                         ${u.role === 'admin' ? '管理员' : '普通用户'}
                     </span>
                 </td>
-                <td class="px-6 py-3 text-slate-500 max-w-[200px] truncate">${u.signature || '-'}</td>
+                <td class="px-6 py-3 text-slate-500 max-w-[200px] truncate">${esc(u.signature || '-')}</td>
                 <td class="px-6 py-3 text-slate-500">${formatDate(u.createdAt)}</td>
             </tr>
         `).join('');
@@ -456,22 +456,22 @@
                     ? '<span class="px-2 py-0.5 rounded-full text-xs font-medium bg-slate-200 text-slate-500">已撤销</span>'
                     : '<span class="px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">在架</span>');
             const actionBtn = resolved || removed
-                ? `<button onclick="event.stopPropagation();adminSetStatus(${it.id},'active')" class="text-xs px-2.5 py-1 rounded-lg border border-blue-400 text-blue-500 font-medium hover:bg-blue-50 transition-colors"><i class="fa fa-rotate-left mr-1"></i>恢复上架</button>`
+                ? `<button onclick="event.stopPropagation();adminSetStatus(${Number(it.id) || 0},'active')" class="text-xs px-2.5 py-1 rounded-lg border border-blue-400 text-blue-500 font-medium hover:bg-blue-50 transition-colors"><i class="fa fa-rotate-left mr-1"></i>恢复上架</button>`
                 : `<div class="flex items-center gap-1">
-                    <button onclick="event.stopPropagation();adminResolve(${it.id},'${it.type}')" class="text-xs px-2.5 py-1 rounded-lg border border-emerald-500 text-emerald-600 font-medium hover:bg-emerald-50 transition-colors"><i class="fa fa-check mr-1"></i>${it.type === 'lost' ? '已找回' : '已认领'}</button>
-                    <button onclick="event.stopPropagation();adminSetStatus(${it.id},'removed')" class="text-xs px-2.5 py-1 rounded-lg border border-red-400 text-red-500 font-medium hover:bg-red-50 transition-colors"><i class="fa fa-ban mr-1"></i>撤销</button>
+                    <button onclick="event.stopPropagation();adminResolve(${Number(it.id) || 0},'${it.type === 'found' ? 'found' : 'lost'}')" class="text-xs px-2.5 py-1 rounded-lg border border-emerald-500 text-emerald-600 font-medium hover:bg-emerald-50 transition-colors"><i class="fa fa-check mr-1"></i>${it.type === 'lost' ? '已找回' : '已认领'}</button>
+                    <button onclick="event.stopPropagation();adminSetStatus(${Number(it.id) || 0},'removed')" class="text-xs px-2.5 py-1 rounded-lg border border-red-400 text-red-500 font-medium hover:bg-red-50 transition-colors"><i class="fa fa-ban mr-1"></i>撤销</button>
                 </div>`;
             return `
-            <tr class="border-t border-slate-200/60 row-link cursor-pointer ${(removed || resolved) ? 'opacity-60' : ''}" onclick="showItemDetail(${it.id})">
-                <td class="px-6 py-3 text-slate-400">${it.id}</td>
+            <tr class="border-t border-slate-200/60 row-link cursor-pointer ${(removed || resolved) ? 'opacity-60' : ''}" onclick="showItemDetail(${Number(it.id) || 0})">
+                <td class="px-6 py-3 text-slate-400">${Number(it.id) || 0}</td>
                 <td class="px-6 py-3">
                     <span class="px-2 py-0.5 rounded-full text-xs font-medium ${typeBadge}">${typeText}</span>
                 </td>
-                <td class="px-6 py-3 font-medium text-slate-800">${it.title}</td>
-                <td class="px-6 py-3 text-slate-600">${it.category}</td>
-                <td class="px-6 py-3 text-slate-600">${it.location}</td>
-                <td class="px-6 py-3 text-slate-600">${it.publisher || '匿名'}</td>
-                <td class="px-6 py-3 text-slate-500">${it.date}</td>
+                <td class="px-6 py-3 font-medium text-slate-800">${esc(it.title)}</td>
+                <td class="px-6 py-3 text-slate-600">${esc(it.category)}</td>
+                <td class="px-6 py-3 text-slate-600">${esc(it.location)}</td>
+                <td class="px-6 py-3 text-slate-600">${esc(it.publisher || '匿名')}</td>
+                <td class="px-6 py-3 text-slate-500">${esc(it.date)}</td>
                 <td class="px-6 py-3">${statusBadge}</td>
                 <td class="px-6 py-3">${actionBtn}</td>
             </tr>`;
@@ -560,8 +560,8 @@
     // ==================== 详情弹窗 ====================
     // 图片安全渲染：无图/外部随机图显示占位
     function adminImgHtml(src, title, cls) {
-        const valid = src && (src.startsWith('data:') || src.startsWith('/images/') || src.startsWith('/api/'));
-        if (valid) return `<img src="${src}" alt="${title}" class="${cls}">`;
+        const valid = window.safeImageUrl(src);
+        if (valid) return `<img src="${esc(valid)}" alt="${esc(title)}" class="${esc(cls)}">`;
         const iconSize = cls.includes('w-10') ? '1rem' : '2rem';
         return `<div class="${cls} flex items-center justify-center bg-slate-100 text-slate-300"><i class="fa fa-image" style="font-size:${iconSize}"></i></div>`;
     }
@@ -587,30 +587,30 @@
                 </button>
             </div>
             <div class="p-6">
-                <h3 class="text-xl font-bold text-slate-800 mb-4">${it.title}</h3>
+                <h3 class="text-xl font-bold text-slate-800 mb-4">${esc(it.title)}</h3>
                 ${statusBanner}
                 <div class="grid grid-cols-2 gap-4 mb-5">
-                    <div class="text-sm"><span class="text-slate-500">物品分类</span><p class="font-medium text-slate-700 mt-0.5">${it.category}</p></div>
-                    <div class="text-sm"><span class="text-slate-500">主色调</span><p class="font-medium text-slate-700 mt-0.5">${it.color}</p></div>
-                    <div class="text-sm"><span class="text-slate-500">地点</span><p class="font-medium text-slate-700 mt-0.5">${it.location}</p></div>
-                    <div class="text-sm"><span class="text-slate-500">日期</span><p class="font-medium text-slate-700 mt-0.5">${it.date}</p></div>
+                    <div class="text-sm"><span class="text-slate-500">物品分类</span><p class="font-medium text-slate-700 mt-0.5">${esc(it.category)}</p></div>
+                    <div class="text-sm"><span class="text-slate-500">主色调</span><p class="font-medium text-slate-700 mt-0.5">${esc(it.color)}</p></div>
+                    <div class="text-sm"><span class="text-slate-500">地点</span><p class="font-medium text-slate-700 mt-0.5">${esc(it.location)}</p></div>
+                    <div class="text-sm"><span class="text-slate-500">日期</span><p class="font-medium text-slate-700 mt-0.5">${esc(it.date)}</p></div>
                 </div>
                 <div class="mb-5">
                     <h4 class="text-sm font-medium text-slate-500 mb-2">详细描述</h4>
-                    <p class="text-slate-700 text-sm leading-relaxed">${it.description}</p>
+                    <p class="text-slate-700 text-sm leading-relaxed">${esc(it.description)}</p>
                 </div>
                 ${it.reward ? `
                 <div class="mb-5 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                    <div class="flex items-center gap-2 text-amber-700"><i class="fa fa-gift"></i><span class="font-medium">酬谢：${it.reward}</span></div>
+                    <div class="flex items-center gap-2 text-amber-700"><i class="fa fa-gift"></i><span class="font-medium">酬谢：${esc(it.reward)}</span></div>
                 </div>` : ''}
                 <div class="grid grid-cols-2 gap-4">
-                    <div class="p-3 bg-slate-50 rounded-xl"><div class="text-xs text-slate-500 mb-1">联系方式</div><div class="font-semibold text-slate-800 text-sm">${it.contact}</div></div>
-                    <div class="p-3 bg-slate-50 rounded-xl"><div class="text-xs text-slate-500 mb-1">发布者</div><div class="font-semibold text-slate-800 text-sm">${it.publisher || '匿名'}</div></div>
+                    <div class="p-3 bg-slate-50 rounded-xl"><div class="text-xs text-slate-500 mb-1">联系方式</div><div class="font-semibold text-slate-800 text-sm">${esc(it.contact)}</div></div>
+                    <div class="p-3 bg-slate-50 rounded-xl"><div class="text-xs text-slate-500 mb-1">发布者</div><div class="font-semibold text-slate-800 text-sm">${esc(it.publisher || '匿名')}</div></div>
                 </div>
                 <div class="mt-5 space-y-3">
                     ${resolved || removed
-                        ? `<button onclick="adminRestoreFromDetail(${it.id})" class="w-full py-3 bg-blue-500 text-white rounded-xl font-medium hover:bg-blue-600 transition-all"><i class="fa fa-rotate-left mr-1"></i>恢复上架</button>`
-                        : `<button onclick="adminResolveFromDetail(${it.id},'${it.type}')" class="w-full py-3 bg-emerald-500 text-white rounded-xl font-medium hover:bg-emerald-600 transition-all"><i class="fa fa-check-circle mr-1"></i>${isLost ? '标记为已找回' : '标记为已认领'}</button>`}
+                        ? `<button onclick="adminRestoreFromDetail(${Number(it.id) || 0})" class="w-full py-3 bg-blue-500 text-white rounded-xl font-medium hover:bg-blue-600 transition-all"><i class="fa fa-rotate-left mr-1"></i>恢复上架</button>`
+                        : `<button onclick="adminResolveFromDetail(${Number(it.id) || 0},'${it.type === 'found' ? 'found' : 'lost'}')" class="w-full py-3 bg-emerald-500 text-white rounded-xl font-medium hover:bg-emerald-600 transition-all"><i class="fa fa-check-circle mr-1"></i>${isLost ? '标记为已找回' : '标记为已认领'}</button>`}
                     <button onclick="closeItemModal()" class="w-full py-3 bg-slate-200 text-slate-700 rounded-xl font-medium hover:bg-slate-300 transition-all">关闭</button>
                 </div>
             </div>`;
@@ -638,11 +638,11 @@
             </div>
             <div class="flex items-center gap-4 mb-6">
                 <div class="w-16 h-16 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-white text-2xl font-bold overflow-hidden">
-                    ${u.avatar ? `<img src="${u.avatar}" class="w-full h-full object-cover" alt="头像">` : u.username.charAt(0).toUpperCase()}
+                    ${window.safeImageUrl(u.avatar) ? `<img src="${esc(window.safeImageUrl(u.avatar))}" class="w-full h-full object-cover" alt="头像">` : esc(String(u.username || '?').charAt(0).toUpperCase())}
                 </div>
                 <div>
-                    <div class="text-lg font-bold text-slate-800">${u.username}</div>
-                    <div class="text-sm text-slate-500 mt-0.5">${u.phone}</div>
+                    <div class="text-lg font-bold text-slate-800">${esc(u.username)}</div>
+                    <div class="text-sm text-slate-500 mt-0.5">${esc(u.phone)}</div>
                 </div>
                 <span class="ml-auto px-2.5 py-1 rounded-full text-xs font-medium ${u.role === 'admin' ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-600'}">
                     ${u.role === 'admin' ? '管理员' : '普通用户'}
@@ -651,16 +651,16 @@
             <div class="space-y-3 mb-6">
                 <div class="flex justify-between p-3 bg-slate-50 rounded-lg"><span class="text-sm text-slate-500">注册时间</span><span class="text-sm text-slate-700">${formatDate(u.createdAt)}</span></div>
                 <div class="flex justify-between p-3 bg-slate-50 rounded-lg"><span class="text-sm text-slate-500">发布总数</span><span class="text-sm text-slate-700">${myItems.length} 条</span></div>
-                <div class="p-3 bg-slate-50 rounded-lg"><span class="text-sm text-slate-500">个性签名</span><p class="text-sm text-slate-700 mt-1">${u.signature || '-'}</p></div>
+                <div class="p-3 bg-slate-50 rounded-lg"><span class="text-sm text-slate-500">个性签名</span><p class="text-sm text-slate-700 mt-1">${esc(u.signature || '-')}</p></div>
             </div>
             <h4 class="text-sm font-medium text-slate-700 mb-2">该用户发布</h4>
             <div class="space-y-2 max-h-56 overflow-y-auto">
                 ${myItems.length ? myItems.map(i => `
-                    <div class="flex items-center gap-3 p-2.5 bg-white rounded-lg border border-slate-200 cursor-pointer hover:border-orange-400 transition-colors" onclick="closeUserModal(); showItemDetail(${i.id})">
+                    <div class="flex items-center gap-3 p-2.5 bg-white rounded-lg border border-slate-200 cursor-pointer hover:border-orange-400 transition-colors" onclick="closeUserModal(); showItemDetail(${Number(i.id) || 0})">
                         ${adminImgHtml(i.image, i.title, "w-10 h-10 rounded-lg object-cover")}
                         <div class="flex-1 min-w-0">
-                            <div class="font-medium text-sm text-slate-800 truncate">${i.title}</div>
-                            <div class="text-xs text-slate-500">${i.date} · ${i.location}</div>
+                            <div class="font-medium text-sm text-slate-800 truncate">${esc(i.title)}</div>
+                            <div class="text-xs text-slate-500">${esc(i.date)} · ${esc(i.location)}</div>
                         </div>
                         <span class="px-1.5 py-0.5 text-xs rounded ${i.type === 'lost' ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}">${i.type === 'lost' ? '寻物' : '招领'}</span>
                     </div>`).join('') : '<div class="text-center py-6 text-slate-400 text-sm">该用户暂无发布</div>'}

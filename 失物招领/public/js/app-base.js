@@ -59,4 +59,26 @@
         }
         return base + s.replace(/^\/+/, '');
     };
+
+    /**
+     * HTML 文本转义。凡是把后端/用户可控字段拼进 innerHTML 的地方，
+     * 文本节点与属性值都必须先经过本函数，避免注入 onerror= 等内联事件。
+     * 用法：`<h3>${esc(item.title)}</h3>` / `alt="${esc(item.title)}"`。
+     */
+    window.esc = function (value) {
+        return String(value == null ? '' : value).replace(/[&<>"']/g, function (c) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+        });
+    };
+
+    /**
+     * 图片 URL 白名单：仅放行 data:image/、站内 /images/ /uploads/ /api/ 路径。
+     * 返回空字符串表示拒绝（调用方应渲染占位图，避免把外链/javascript: 塞进 src）。
+     */
+    window.safeImageUrl = function (value) {
+        var s = String(value == null ? '' : value).trim();
+        if (/^data:image\/(?:png|jpe?g|gif|webp);base64,/i.test(s)) return s;
+        if (/^\/(?:images|uploads|api)\//i.test(s)) return s;
+        return '';
+    };
 }());

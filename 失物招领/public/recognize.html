@@ -872,7 +872,7 @@ lost.html
             const modelNotice = document.getElementById('modelErrorNotice');
             if (modelNotice) modelNotice.classList.toggle('hidden', !result.modelError);
             document.getElementById('itemTags').innerHTML = result.features.map(f =>
-                `<span class="px-3 py-1 bg-primary/10 text-primary text-sm rounded-full font-medium">${f}</span>`
+                `<span class="px-3 py-1 bg-primary/10 text-primary text-sm rounded-full font-medium">${esc(f)}</span>`
             ).join('');
 
             // 物品类型（如「雨伞」）独立展示
@@ -902,13 +902,13 @@ lost.html
             document.getElementById('matchCount').textContent = `找到 ${matches.length} 条匹配`;
 
             document.getElementById('matchResults').innerHTML = matches.slice(0, 5).map(item => `
-                <div class="flex items-center gap-3 p-2.5 bg-white rounded-lg border border-slate-200 hover:border-primary/50 cursor-pointer transition-colors" onclick="showItemDetail(${item.id})">
+                <div class="flex items-center gap-3 p-2.5 bg-white rounded-lg border border-slate-200 hover:border-primary/50 cursor-pointer transition-colors" onclick="showItemDetail(${Number(item.id) || 0})">
                     ${itemImgHtml(item, "w-12 h-12 rounded-lg object-cover")}
                     <div class="flex-1 min-w-0">
-                        <div class="font-medium text-sm text-slate-800 truncate">${item.title}</div>
-                        <div class="text-xs text-slate-500">${item.location}</div>
+                        <div class="font-medium text-sm text-slate-800 truncate">${esc(item.title)}</div>
+                        <div class="text-xs text-slate-500">${esc(item.location)}</div>
                     </div>
-                    <div class="text-xs text-secondary font-medium">${item.similarity}%匹配</div>
+                    <div class="text-xs text-secondary font-medium">${Number(item.similarity) || 0}%匹配</div>
                 </div>
             `).join('');
 

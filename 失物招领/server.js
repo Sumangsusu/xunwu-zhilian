@@ -168,6 +168,13 @@ app.post('/api/auth/login', loginLimit, (req, res) => {
   return res.json({ success: true, user });
 });
 
+// 公开登录配置：只下发前端决定登录入口所需的最小字段，不下发任何密钥/内部地址。
+// 当前制品未接入校方 CAS（启动时即校验 CAS_ENABLED=false），故恒为 false，
+// 但接口必须返回真实 JSON，避免被 SPA 兜底回退成 HTML 后被前端静默吞错。
+app.get('/api/auth/config', (_req, res) => {
+  return res.json({ success: true, casEnabled: false });
+});
+
 // 获取当前登录用户信息
 app.get('/api/auth/me', authRequired, (req, res) => {
   return res.json({ success: true, user: req.user });
@@ -601,8 +608,16 @@ app.get('/admin', (_req, res) => {
 });
 
 // ---------------- 其他路由回退到首页 ----------------
-app.get('*', (_req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+// 只对「看似前端页面」的无扩展名路径回退 index.html；API、隐藏文件、静态资源
+// 一律返回真实 404，避免不存在的接口/资源被 200 HTML 吞掉导致前端 resp.json() 解析失败被静默捕获。
+app.get('*', (req, res) => {
+  const pathname = req.path;
+  const looksLikeApi = pathname === '/api' || pathname.startsWith('/api/');
+  const looksLikeFile = /(?:^|\/)\.[^/]/.test(pathname) || /\.[a-z0-9]+$/i.test(pathname);
+  if (looksLikeApi || looksLikeFile) {
+    return res.status(404).json({ success: false, message: '请求的资源不存在' });
+  }
+  return res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 app.use((err, _req, res, _next) => {
