@@ -13,6 +13,7 @@ const { coordinates, validPair } = require('./coordinates');
 const { readImage, saveImage } = require('./images');
 const { buildMapConfig, mapCspSources } = require('./map-config');
 const ocr = require('./ocr');
+const recognize = require('./recognize');
 
 const app = express();
 app.set('trust proxy', config.trustProxy || false);
@@ -74,6 +75,7 @@ const loginLimit = limit(config.rateLimit);
 const publishLimit = limit(config.rateLimit);
 const verifyLimit = limit(5);
 const ocrLimit = limit(10);
+const recognizeLimit = limit(10);
 app.use(express.json({ limit: '8mb', inflate: false }));
 
 // 页面（.html 及无扩展名路由）禁止缓存，确保前端改动后浏览器总是拿到最新页面
@@ -229,6 +231,30 @@ app.post('/api/ocr', authRequired, ocrLimit, async (req, res) => {
   } catch (err) {
     console.error('[ocr]', err.code || err.name);
     return res.json({ success: false, code: 'ocr-unavailable', message: '文字识别服务暂时不可用，请手动填写描述' });
+  }
+});
+
+// 物品图片识别（小程序 / 网页版共用）：图片不落盘、不入库，仅内存推理。
+// 复用网页版同一 MobileNetV2 模型 + 类目聚合映射，识别口径与网页版一致。
+app.post('/api/recognize', authRequired, recognizeLimit, async (req, res) => {
+  try {
+    const image = (req.body || {}).image;
+    if (!image || typeof image !== 'string') {
+      return res.json({ success: false, code: 'no-image', message: '请上传图片' });
+    }
+    const match = /^data:image\/(jpeg|png);base64,([A-Za-z0-9+/]+={0,2})$/.exec(image);
+    if (!match) {
+      return res.json({ success: false, code: 'bad-image', message: '仅支持 JPEG / PNG 图片' });
+    }
+    const buf = Buffer.from(match[2], 'base64');
+    if (buf.length > 5 * 1024 * 1024) {
+      return res.json({ success: false, code: 'too-large', message: '图片不能超过 5 MiB' });
+    }
+    const result = await recognize.recognizeImage(buf);
+    return res.json({ success: true, result });
+  } catch (err) {
+    console.error('[recognize]', err.name || err.message);
+    return res.json({ success: false, code: 'recognize-unavailable', message: '物品识别服务暂时不可用，请稍后再试或手动填写描述' });
   }
 });
 
