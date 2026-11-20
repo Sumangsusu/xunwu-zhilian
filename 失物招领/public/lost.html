@@ -241,6 +241,7 @@ publish.html
         </div>
     </div>
 
+    <script src="js/location-alias.js"></script>
     <script src="js/common.js"></script>
     <script>
         // ==================== 失物列表逻辑 ====================
@@ -269,15 +270,11 @@ publish.html
             const sort = document.getElementById('sortFilter').value;
 
             let list = allLostItems;
-            if (kw) {
-                list = list.filter(i =>
-                    (i.title || '').toLowerCase().includes(kw) ||
-                    (i.location || '').toLowerCase().includes(kw) ||
-                    (i.description || '').toLowerCase().includes(kw)
-                );
-            }
+            // 地点智能匹配：关键词走 LocationAlias.matchItem（"一教"能找到"信息学部一教"），
+            // 地点下拉走 matchLocation（同一地点的多种表述互通）；无命中则退回原字面匹配。
+            if (kw) list = list.filter(i => window.LocationAlias.matchItem(kw, i));
             if (cat) list = list.filter(i => i.category === cat);
-            if (loc) list = list.filter(i => i.location === loc);
+            if (loc) list = list.filter(i => window.LocationAlias.matchLocation(loc, i.location));
 
             // 排序：new/old 按发布 id，date-* 按事发日期
             list = [...list].sort((a, b) => {

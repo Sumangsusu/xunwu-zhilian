@@ -14,6 +14,7 @@ const { readImage, saveImage } = require('./images');
 const { buildMapConfig, mapCspSources } = require('./map-config');
 const ocr = require('./ocr');
 const recognize = require('./recognize');
+const locationAlias = require('./public/js/location-alias');
 
 const app = express();
 app.set('trust proxy', config.trustProxy || false);
@@ -277,8 +278,10 @@ app.get('/api/items/stats', (_req, res) => {
 });
 
 // 物品列表，支持 ?type=lost|found 与 ?publisher=用户名（公开列表只返回在架 active）
+// ?q=关键词：走 locationAlias.matchItem 做地点别名/关键词匹配（"一教"能找到"信息学部一教"）。
+//   先在完整字段上匹配，再经 publicItem 脱敏返回，联系方式/防冒领问答不参与匹配也不外泄。
 app.get('/api/items', (req, res) => {
-  const { type, publisher } = req.query;
+  const { type, publisher, q } = req.query;
   let sql = "SELECT * FROM items WHERE status = 'active'";
   const params = [];
   if (type === 'lost' || type === 'found') {
@@ -291,7 +294,10 @@ app.get('/api/items', (req, res) => {
   }
   sql += ' ORDER BY id DESC';
   const rows = db.prepare(sql).all(...params);
-  return res.json({ success: true, items: rows.map((r) => publicItem(mapItem(r))) });
+  let items = rows.map(mapItem);
+  const keyword = typeof q === 'string' ? q.trim() : '';
+  if (keyword) items = items.filter((item) => locationAlias.matchItem(keyword, item));
+  return res.json({ success: true, items: items.map(publicItem) });
 });
 
 // 我发布的全部启事（含已撤销，需登录；供个人中心管理/撤销/恢复）
