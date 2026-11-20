@@ -4,3 +4,5 @@ Dockerfile text eol=lf
 *.template text eol=lf
 # deploy.sh 用 sed 匹配 ^SESSION_SECRET=$ 生成密钥，CRLF 会导致生成空密钥、生产拒绝启动
 .env.example text eol=lf
+# server.js 历史以 CRLF 入库；声明 CR 属于行尾，避免 git diff --check 把 CR 误报为行尾空白
+server.js whitespace=cr-at-eol
