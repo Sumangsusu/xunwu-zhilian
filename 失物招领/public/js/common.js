@@ -7,6 +7,20 @@ if (typeof window.apiUrl !== 'function') {
     window.API_BASE = '/';
     window.apiUrl = function (p) { return String(p == null ? '' : p); };
 }
+// 正常由 app-base.js 提供转义/图片白名单；此处兜底，避免漏引时整站脚本报错。
+if (typeof window.esc !== 'function') {
+    window.esc = function (value) {
+        return String(value == null ? '' : value).replace(/[&<>"']/g, function (c) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+        });
+    };
+}
+if (typeof window.safeImageUrl !== 'function') {
+    window.safeImageUrl = function (value) {
+        var s = String(value == null ? '' : value).trim();
+        return (/^data:image\/(?:png|jpe?g|gif|webp);base64,/i.test(s) || /^\/(?:images|uploads|api)\//i.test(s)) ? s : '';
+    };
+}
 
 let currentUser = null;
 
@@ -179,10 +193,11 @@ function highlightNav() {
 function updateNavAvatar(user) {
     const avatarEl = document.getElementById('userAvatar');
     if (!avatarEl) return;
-    if (user.avatar) {
-        avatarEl.innerHTML = `<img src="${user.avatar}" class="avatar-img" alt="头像">`;
+    const avatar = window.safeImageUrl(user.avatar);
+    if (avatar) {
+        avatarEl.innerHTML = `<img src="${esc(avatar)}" class="avatar-img" alt="头像">`;
     } else {
-        avatarEl.innerHTML = user.username.charAt(0).toUpperCase();
+        avatarEl.textContent = String(user.username || '?').charAt(0).toUpperCase();
     }
 }
 
@@ -214,11 +229,11 @@ function initMobileMenu() {
 // ---------------- 渲染函数 ----------------
 // 图片安全渲染：仅 data: / /images/ / /api/ 视为有效图，否则灰色占位（保证图文匹配）
 function itemImgHtml(item, cls) {
-    const src = item.image;
-    const valid = src && (src.startsWith('data:') || src.startsWith('/images/') || src.startsWith('/api/'));
-    if (valid) return `<img src="${src}" alt="${item.title}" class="${cls}">`;
+    const src = window.safeImageUrl(item.image);
+    const safeCls = esc(cls);
+    if (src) return `<img src="${esc(src)}" alt="${esc(item.title)}" class="${safeCls}">`;
     const iconSize = cls.includes('w-12') || cls.includes('w-10') ? '1rem' : '2rem';
-    return `<div class="${cls} img-placeholder"><i class="fa fa-image" style="font-size:${iconSize}"></i></div>`;
+    return `<div class="${safeCls} img-placeholder"><i class="fa fa-image" style="font-size:${iconSize}"></i></div>`;
 }
 
 function createItemCard(item) {
@@ -226,22 +241,22 @@ function createItemCard(item) {
     const badgeText = item.type === 'lost' ? '寻物启事' : '失物招领';
 
     return `
-        <div class="card-art card-hover cursor-pointer overflow-hidden rise-in" onclick="showItemDetail(${item.id})">
+        <div class="card-art card-hover cursor-pointer overflow-hidden rise-in" onclick="showItemDetail(${Number(item.id) || 0})">
             <div class="relative h-48 overflow-hidden card-img-mask">
                 ${itemImgHtml(item, "w-full h-full object-cover")}
                 <span class="absolute top-3 left-3 px-2.5 py-1 text-xs font-medium rounded-full badge-glass ${badgeClass}">${badgeText}</span>
                 ${item.hasQuiz ? `<span class="absolute top-3 right-3 px-2.5 py-1 text-xs font-medium rounded-full badge-glass bg-blue-100 text-blue-700"><i class="fa fa-shield mr-1"></i>需答题认领</span>` : ''}
             </div>
             <div class="p-4">
-                <h3 class="font-semibold text-slate-800 mb-2 truncate">${item.title}</h3>
+                <h3 class="font-semibold text-slate-800 mb-2 truncate">${esc(item.title)}</h3>
                 <div class="space-y-1.5 text-sm text-slate-500">
                     <div class="flex items-center gap-2">
                         <i class="fa fa-map-marker w-4 text-slate-400"></i>
-                        <span class="truncate">${item.location}</span>
+                        <span class="truncate">${esc(item.location)}</span>
                     </div>
                     <div class="flex items-center gap-2">
                         <i class="fa fa-clock-o w-4 text-slate-400"></i>
-                        <span>${item.date}</span>
+                        <span>${esc(item.date)}</span>
                     </div>
                 </div>
             </div>
@@ -279,58 +294,58 @@ function renderItemDetail(item) {
             <span class="absolute top-4 left-4 px-3 py-1 text-sm font-medium rounded-full badge-glass ${badgeClass}">${badgeText}</span>
         </div>
         <div class="p-6">
-            <h3 class="text-xl font-bold text-slate-800 mb-4 font-display">${item.title}</h3>
+            <h3 class="text-xl font-bold text-slate-800 mb-4 font-display">${esc(item.title)}</h3>
 
             ${statusBanner}
 
             <div class="grid grid-cols-2 gap-4 mb-6">
                 <div class="text-sm">
                     <span class="text-slate-500">物品分类</span>
-                    <p class="font-medium text-slate-700 mt-0.5">${item.category}</p>
+                    <p class="font-medium text-slate-700 mt-0.5">${esc(item.category)}</p>
                 </div>
                 <div class="text-sm">
                     <span class="text-slate-500">主色调</span>
-                    <p class="font-medium text-slate-700 mt-0.5">${item.color}</p>
+                    <p class="font-medium text-slate-700 mt-0.5">${esc(item.color)}</p>
                 </div>
                 <div class="text-sm">
                     <span class="text-slate-500">地点</span>
-                    <p class="font-medium text-slate-700 mt-0.5">${item.location}</p>
+                    <p class="font-medium text-slate-700 mt-0.5">${esc(item.location)}</p>
                 </div>
                 <div class="text-sm">
                     <span class="text-slate-500">日期</span>
-                    <p class="font-medium text-slate-700 mt-0.5">${item.date}</p>
+                    <p class="font-medium text-slate-700 mt-0.5">${esc(item.date)}</p>
                 </div>
             </div>
 
             <div class="mb-6">
                 <h4 class="text-sm font-medium text-slate-500 mb-2">详细描述</h4>
-                <p class="text-slate-700 text-sm leading-relaxed">${item.description}</p>
+                <p class="text-slate-700 text-sm leading-relaxed">${esc(item.description)}</p>
             </div>
 
             ${item.reward ? `
             <div class="mb-6 p-3 bg-amber-50 border border-amber-200 rounded-lg">
                 <div class="flex items-center gap-2 text-amber-700">
                     <i class="fa fa-gift"></i>
-                    <span class="font-medium">酬谢：${item.reward}</span>
+                    <span class="font-medium">酬谢：${esc(item.reward)}</span>
                 </div>
             </div>
             ` : ''}
 
             <div class="p-4 bg-slate-50 rounded-xl">
                 <div class="text-sm text-slate-500 mb-2">联系方式</div>
-                <div class="font-semibold text-slate-800">${item.contact}</div>
-                ${item.publisher ? `<div class="text-xs text-slate-400 mt-1">发布者：${item.publisher}</div>` : ''}
+                <div class="font-semibold text-slate-800">${esc(item.contact)}</div>
+                ${item.publisher ? `<div class="text-xs text-slate-400 mt-1">发布者：${esc(item.publisher)}</div>` : ''}
             </div>
 
             ${item.hasQuiz && item.contactMasked ? renderQuizSection(item) : ''}
 
             <div class="mt-6 space-y-3">
                 ${canManage && !resolved && item.status !== 'removed' ? `
-                <button class="w-full py-3 bg-secondary text-white rounded-xl font-medium hover:bg-secondary/90 transition-colors" onclick="markResolvedFromModal(${item.id})">
+                <button class="w-full py-3 bg-secondary text-white rounded-xl font-medium hover:bg-secondary/90 transition-colors" onclick="markResolvedFromModal(${Number(item.id) || 0})">
                     <i class="fa fa-check-circle mr-1"></i>${resolveAction}
                 </button>` : ''}
                 ${canManage && (resolved || item.status === 'removed') ? `
-                <button class="w-full py-3 bg-primary text-white rounded-xl font-medium hover:bg-primary/90 transition-colors" onclick="restoreFromModal(${item.id})">
+                <button class="w-full py-3 bg-primary text-white rounded-xl font-medium hover:bg-primary/90 transition-colors" onclick="restoreFromModal(${Number(item.id) || 0})">
                     <i class="fa fa-rotate-left mr-1"></i>恢复上架
                 </button>` : ''}
                 <button class="w-full py-3 bg-slate-200 text-slate-700 rounded-xl font-medium hover:bg-slate-300 transition-colors" onclick="closeModal()">
@@ -349,19 +364,19 @@ function renderItemDetail(item) {
 function renderQuizSection(item) {
     const questionsHtml = (item.quiz || []).map((q, qi) => `
         <div class="mt-3">
-            <div class="text-sm font-medium text-slate-700 mb-2">${qi + 1}. ${q.q}</div>
+            <div class="text-sm font-medium text-slate-700 mb-2">${qi + 1}. ${esc(q.q)}</div>
             <div class="space-y-1.5">
                 ${q.options.map((opt, oi) => `
                 <label class="flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-white cursor-pointer hover:border-primary transition-colors text-sm text-slate-700">
-                    <input type="radio" name="quiz_${item.id}_${qi}" value="${oi}" class="accent-primary">
-                    <span>${opt}</span>
+                    <input type="radio" name="quiz_${Number(item.id) || 0}_${qi}" value="${oi}" class="accent-primary">
+                    <span>${esc(opt)}</span>
                 </label>`).join('')}
             </div>
         </div>
     `).join('');
 
     return `
-        <div class="mt-4 p-4 bg-blue-50/70 border border-blue-200 rounded-xl" id="quizSection_${item.id}">
+        <div class="mt-4 p-4 bg-blue-50/70 border border-blue-200 rounded-xl" id="quizSection_${Number(item.id) || 0}">
             <div class="flex items-start gap-2 text-sm text-blue-700 mb-1">
                 <i class="fa fa-shield mt-0.5"></i>
                 <div>
@@ -371,10 +386,10 @@ function renderQuizSection(item) {
             </div>
             ${questionsHtml}
             <div class="mt-4 flex items-center gap-3">
-                <button onclick="submitQuiz(${item.id})" class="px-5 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors">
+                <button onclick="submitQuiz(${Number(item.id) || 0})" class="px-5 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors">
                     <i class="fa fa-check mr-1"></i>提交答案
                 </button>
-                <span id="quizMsg_${item.id}" class="text-xs"></span>
+                <span id="quizMsg_${Number(item.id) || 0}" class="text-xs"></span>
             </div>
         </div>
     `;

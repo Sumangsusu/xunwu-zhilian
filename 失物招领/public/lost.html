@@ -259,7 +259,7 @@ publish.html
             const cur = sel.value;
             const locs = [...new Set(items.map(i => i.location).filter(Boolean))].sort();
             sel.innerHTML = '<option value="">全部地点</option>' +
-                locs.map(l => `<option value="${l}">${l}</option>`).join('');
+                locs.map(l => `<option value="${esc(l)}">${esc(l)}</option>`).join('');
             sel.value = cur;
         }
 

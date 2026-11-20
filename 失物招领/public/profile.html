@@ -269,10 +269,13 @@ publish.html
         function updateAvatarUi(user) {
             const avatarEl = document.getElementById('profileAvatar');
             if (user.avatar) {
-                avatarEl.innerHTML = `<img src="${user.avatar}" class="avatar-img" alt="头像">`;
-            } else {
-                avatarEl.innerHTML = user.username.charAt(0).toUpperCase();
+                const url = window.safeImageUrl(user.avatar);
+                if (url) {
+                    avatarEl.innerHTML = `<img src="${esc(url)}" class="avatar-img" alt="头像">`;
+                    return;
+                }
             }
+            avatarEl.textContent = String(user.username || '?').charAt(0).toUpperCase();
         }
 
         // 处理头像上传
@@ -346,27 +349,27 @@ publish.html
                     : (removed ? '<span class="px-1.5 py-0.5 text-xs rounded bg-slate-300 text-slate-600 flex-shrink-0">已撤销</span>' : '');
 
                 const mainRow = `
-                    <div class="flex items-center gap-4 ${(removed || resolved) ? 'opacity-60' : ''} p-4 bg-slate-50 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer" onclick="showItemDetail(${item.id})">
+                    <div class="flex items-center gap-4 ${(removed || resolved) ? 'opacity-60' : ''} p-4 bg-slate-50 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer" onclick="showItemDetail(${Number(item.id) || 0})">
                         ${itemImgHtml(item, "w-16 h-16 rounded-lg object-cover")}
                         <div class="flex-1 min-w-0">
                             <div class="flex items-center gap-2 flex-wrap">
-                                <span class="font-medium text-slate-800 truncate">${item.title}</span>
+                                <span class="font-medium text-slate-800 truncate">${esc(item.title)}</span>
                                 <span class="px-1.5 py-0.5 text-xs rounded ${badgeClass} flex-shrink-0">${badgeText}</span>
                                 ${statusBadge}
                             </div>
-                            <div class="text-xs text-slate-500 mt-1">${item.date} · ${item.location}</div>
-                            <div class="text-xs text-slate-400 mt-0.5">${item.category} · ${item.color}</div>
+                            <div class="text-xs text-slate-500 mt-1">${esc(item.date)} · ${esc(item.location)}</div>
+                            <div class="text-xs text-slate-400 mt-0.5">${esc(item.category)} · ${esc(item.color)}</div>
                         </div>
                     </div>
                 `;
 
                 let actionBtns = '';
                 if (resolved || removed) {
-                    actionBtns = `<button onclick="event.stopPropagation();togglePublishStatus(${item.id},'active')" class="text-xs px-3 py-1.5 rounded-lg border-2 border-blue-400 text-blue-500 font-medium hover:bg-blue-50 transition-colors flex-shrink-0"><i class="fa fa-rotate-left mr-1"></i>恢复上架</button>`;
+                    actionBtns = `<button onclick="event.stopPropagation();togglePublishStatus(${Number(item.id) || 0},'active')" class="text-xs px-3 py-1.5 rounded-lg border-2 border-blue-400 text-blue-500 font-medium hover:bg-blue-50 transition-colors flex-shrink-0"><i class="fa fa-rotate-left mr-1"></i>恢复上架</button>`;
                 } else {
                     actionBtns = `
-                        <button onclick="event.stopPropagation();markResolved(${item.id},'${item.type}')" class="text-xs px-3 py-1.5 rounded-lg border-2 border-emerald-500 text-emerald-600 font-medium hover:bg-emerald-50 transition-colors flex-shrink-0"><i class="fa fa-check-circle mr-1"></i>${item.type === 'lost' ? '标记已找回' : '标记已认领'}</button>
-                        <button onclick="event.stopPropagation();togglePublishStatus(${item.id},'removed')" class="text-xs px-3 py-1.5 rounded-lg border-2 border-red-400 text-red-500 font-medium hover:bg-red-50 transition-colors flex-shrink-0"><i class="fa fa-times-circle mr-1"></i>撤销</button>
+                        <button onclick="event.stopPropagation();markResolved(${Number(item.id) || 0},'${item.type === 'found' ? 'found' : 'lost'}')" class="text-xs px-3 py-1.5 rounded-lg border-2 border-emerald-500 text-emerald-600 font-medium hover:bg-emerald-50 transition-colors flex-shrink-0"><i class="fa fa-check-circle mr-1"></i>${item.type === 'lost' ? '标记已找回' : '标记已认领'}</button>
+                        <button onclick="event.stopPropagation();togglePublishStatus(${Number(item.id) || 0},'removed')" class="text-xs px-3 py-1.5 rounded-lg border-2 border-red-400 text-red-500 font-medium hover:bg-red-50 transition-colors flex-shrink-0"><i class="fa fa-times-circle mr-1"></i>撤销</button>
                     `;
                 }
 

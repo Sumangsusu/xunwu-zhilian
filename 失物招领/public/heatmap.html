@@ -267,13 +267,13 @@
                 return;
             }
             el.innerHTML = list.slice().sort((a, b) => b.id - a.id).map(i => `
-                <div class="flex items-center gap-3 p-3 bg-slate-50 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer" onclick="showItemDetail(${i.id})">
+                <div class="flex items-center gap-3 p-3 bg-slate-50 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer" onclick="showItemDetail(${Number(i.id) || 0})">
                     <span class="w-9 h-9 rounded-lg flex items-center justify-center text-white text-sm flex-shrink-0 ${i.type === 'lost' ? 'bg-red-400' : 'bg-emerald-500'}">${i.type === 'lost' ? '寻' : '招'}</span>
                     <div class="flex-1 min-w-0">
-                        <div class="font-medium text-sm text-slate-800 truncate">${i.title}</div>
-                        <div class="text-xs text-slate-500 truncate"><i class="fa fa-map-marker mr-1"></i>${i.location}</div>
+                        <div class="font-medium text-sm text-slate-800 truncate">${esc(i.title)}</div>
+                        <div class="text-xs text-slate-500 truncate"><i class="fa fa-map-marker mr-1"></i>${esc(i.location)}</div>
                     </div>
-                    <span class="text-xs text-slate-400 flex-shrink-0">${i.date}</span>
+                    <span class="text-xs text-slate-400 flex-shrink-0">${esc(i.date)}</span>
                 </div>
             `).join('');
         }

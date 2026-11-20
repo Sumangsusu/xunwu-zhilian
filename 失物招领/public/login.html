@@ -329,7 +329,10 @@
                         card.insertBefore(box, card.firstChild);
                     }
                 }
-            } catch (e) { /* 忽略，走本地登录兜底 */ }
+            } catch (e) {
+                // 配置接口异常不再静默吞掉：记录可见告警，仍走本地登录兜底，避免登录页整体不可用。
+                console.warn('[login] 登录配置读取失败，已回退本地登录：', e && e.message ? e.message : e);
+            }
         });
     </script>
 </body>
