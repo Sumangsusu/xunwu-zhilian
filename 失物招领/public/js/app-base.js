@@ -81,4 +81,104 @@
         if (/^\/(?:images|uploads|api)\//i.test(s)) return s;
         return '';
     };
+
+    /**
+     * 用户端图片压缩（减轻服务器上传/存储负载）。
+     *
+     * 目标：图片在浏览器端先缩放 + 重编码到合理体积，再以 data URL 交给后端，
+     *      避免把几 MB 的原图原样上传（base64 还会再膨胀 1/3）。
+     * 策略：
+     *   - 长边超过 maxEdge 时等比缩放；
+     *   - 以 quality 起、按 0.1 递减反复 JPEG 编码，直到估算体积 <= targetBytes
+     *     或降到 minQuality（保证不会无限循环）；
+     *   - 透明像素先铺白底，避免 PNG 转 JPEG 后透明区变黑；
+     *   - GIF 天生小且带动画/透明，重编码会破坏动画，直接原样返回；
+     *   - 已经足够小（尺寸与体积都达标）的图片原样返回，避免有损重编码掉画质。
+     *
+     * 返回 Promise<string>（data URL）；解码失败时 reject，调用方应降级到原图。
+     */
+    function numOr(value, fallback) {
+        var n = Number(value);
+        return isFinite(n) && n > 0 ? n : fallback;
+    }
+
+    function dataUrlBytes(dataUrl) {
+        var s = String(dataUrl || '');
+        var comma = s.indexOf(',');
+        if (comma < 0) return s.length;
+        return Math.floor((s.length - comma - 1) * 3 / 4); // base64: 4 字符 ≈ 3 字节
+    }
+
+    window.compressImage = function (file, opts) {
+        opts = opts || {};
+        var maxEdge = numOr(opts.maxEdge, 1280);
+        var quality = numOr(opts.quality, 0.82);
+        var targetBytes = numOr(opts.targetBytes, 1024 * 1024);
+        var minQuality = numOr(opts.minQuality, 0.5);
+        if (quality > 1) quality = 1;
+        if (minQuality > quality) minQuality = quality;
+
+        return new Promise(function (resolve, reject) {
+            if (!file || !/^image\//i.test(file.type || '')) {
+                reject(new Error('请选择图片文件'));
+                return;
+            }
+            // GIF 重编码会丢动画，原样返回（后端 5 MiB 上限另行兜底）
+            if (/^image\/gif$/i.test(file.type)) {
+                var gifReader = new FileReader();
+                gifReader.onerror = function () { reject(new Error('图片读取失败')); };
+                gifReader.onload = function () { resolve(String(gifReader.result || '')); };
+                gifReader.readAsDataURL(file);
+                return;
+            }
+
+            var reader = new FileReader();
+            reader.onerror = function () { reject(new Error('图片读取失败')); };
+            reader.onload = function () {
+                var raw = String(reader.result || '');
+                var img = new Image();
+                img.onerror = function () { reject(new Error('图片解码失败')); };
+                img.onload = function () {
+                    var w = img.naturalWidth || img.width;
+                    var h = img.naturalHeight || img.height;
+                    if (!w || !h) {
+                        reject(new Error('图片尺寸无效'));
+                        return;
+                    }
+                    // 尺寸与体积都达标：原样返回，保真且省 CPU
+                    if (Math.max(w, h) <= maxEdge && dataUrlBytes(raw) <= targetBytes) {
+                        resolve(raw);
+                        return;
+                    }
+                    var scale = Math.max(w, h) > maxEdge ? maxEdge / Math.max(w, h) : 1;
+                    var cw = Math.max(1, Math.round(w * scale));
+                    var ch = Math.max(1, Math.round(h * scale));
+                    var canvas = document.createElement('canvas');
+                    canvas.width = cw;
+                    canvas.height = ch;
+                    var ctx = canvas.getContext('2d');
+                    ctx.fillStyle = '#ffffff'; // 透明区铺白，避免转 JPEG 后发黑
+                    ctx.fillRect(0, 0, cw, ch);
+                    ctx.drawImage(img, 0, 0, cw, ch);
+
+                    var q = quality;
+                    var out = canvas.toDataURL('image/jpeg', q);
+                    while (dataUrlBytes(out) > targetBytes && q > minQuality + 0.001) {
+                        q = Math.max(minQuality, q - 0.1);
+                        out = canvas.toDataURL('image/jpeg', q);
+                    }
+                    resolve(out);
+                };
+                img.src = raw;
+            };
+            reader.readAsDataURL(file);
+        });
+    };
+
+    // 各上传入口的压缩预设（集中管理，便于统一调整）
+    window.IMAGE_COMPRESS_PRESETS = {
+        publish: { maxEdge: 1280, quality: 0.82, targetBytes: 1024 * 1024, minQuality: 0.5 },
+        ocr:     { maxEdge: 1600, quality: 0.9,  targetBytes: 2 * 1024 * 1024, minQuality: 0.6 },
+        avatar:  { maxEdge: 256,  quality: 0.85, targetBytes: 100 * 1024, minQuality: 0.5 }
+    };
 }());

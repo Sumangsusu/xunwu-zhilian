@@ -46,6 +46,20 @@
                 return reject(new Error('仅支持 JPG / PNG / GIF / WebP 图片'));
             }
             if (file.size > MAX_BYTES) return reject(new Error('图片不能超过 5 MB'));
+            // 用户端压缩后再传给后端 OCR，减小上传体积（OCR 需较高清晰度，用 ocr 预设）
+            var rootWindow = (typeof window !== 'undefined') ? window : null;
+            if (rootWindow && typeof rootWindow.compressImage === 'function' && rootWindow.IMAGE_COMPRESS_PRESETS) {
+                rootWindow.compressImage(file, rootWindow.IMAGE_COMPRESS_PRESETS.ocr)
+                    .then(function (dataUrl) { resolve(String(dataUrl || '')); })
+                    .catch(function () {
+                        // 压缩失败则降级为原图读取，不让识别功能不可用
+                        var reader = new FileReader();
+                        reader.onload = function () { resolve(String(reader.result || '')); };
+                        reader.onerror = function () { reject(new Error('图片读取失败，请重新选择')); };
+                        reader.readAsDataURL(file);
+                    });
+                return;
+            }
             var reader = new FileReader();
             reader.onload = function () { resolve(String(reader.result || '')); };
             reader.onerror = function () { reject(new Error('图片读取失败，请重新选择')); };
