@@ -279,21 +279,32 @@ publish.html
         }
 
         // 处理头像上传
-        function handleAvatarUpload(event) {
+        async function handleAvatarUpload(event) {
             const file = event.target.files[0];
             if (!file || !file.type.startsWith('image/')) return;
 
-            const reader = new FileReader();
-            reader.onload = async function (e) {
-                const avatarBase64 = e.target.result;
-                const ok = await UserDB.updateProfile({ avatar: avatarBase64 });
-                if (!ok) return;
-                const user = UserDB.getCurrent();
-                updateAvatarUi(user);
-                updateNavAvatar(user);
-                alert('头像更新成功！');
-            };
-            reader.readAsDataURL(file);
+            // 用户端压缩头像（长边≤256），减小上传与存储体积
+            let avatarBase64 = '';
+            try {
+                if (typeof window.compressImage === 'function') {
+                    avatarBase64 = await window.compressImage(file, window.IMAGE_COMPRESS_PRESETS.avatar);
+                } else {
+                    throw new Error('no compressor');
+                }
+            } catch (e) {
+                avatarBase64 = await new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result);
+                    reader.onerror = () => reject(new Error('图片读取失败'));
+                    reader.readAsDataURL(file);
+                });
+            }
+            const ok = await UserDB.updateProfile({ avatar: avatarBase64 });
+            if (!ok) return;
+            const user = UserDB.getCurrent();
+            updateAvatarUi(user);
+            updateNavAvatar(user);
+            alert('头像更新成功！');
         }
 
         // 保存个性签名

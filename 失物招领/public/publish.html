@@ -512,29 +512,26 @@ profile.html
                     this.value = '';
                     return;
                 }
-                const reader = new FileReader();
-                reader.onload = (ev) => {
-                    const img = new Image();
-                    img.onload = () => {
-                        const maxW = 800;
-                        if (img.width > maxW) {
-                            const canvas = document.createElement('canvas');
-                            const scale = maxW / img.width;
-                            canvas.width = maxW;
-                            canvas.height = Math.round(img.height * scale);
-                            canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
-                            publishImageData = canvas.toDataURL('image/jpeg', 0.8);
-                        } else {
-                            publishImageData = ev.target.result;
-                        }
-                        preview.src = publishImageData;
-                        preview.classList.remove('hidden');
-                        placeholder.classList.add('hidden');
-                        clearBtn.classList.remove('hidden');
-                    };
-                    img.src = ev.target.result;
+                // 用户端压缩：长边 ≤1280、JPEG 0.82、目标 <1MiB，减轻服务器上传/存储负载
+                const applyImage = (dataUrl) => {
+                    publishImageData = dataUrl;
+                    preview.src = publishImageData;
+                    preview.classList.remove('hidden');
+                    placeholder.classList.add('hidden');
+                    clearBtn.classList.remove('hidden');
                 };
-                reader.readAsDataURL(file);
+                const fallback = () => {
+                    const reader = new FileReader();
+                    reader.onload = (ev) => applyImage(ev.target.result);
+                    reader.readAsDataURL(file);
+                };
+                if (typeof window.compressImage === 'function') {
+                    window.compressImage(file, window.IMAGE_COMPRESS_PRESETS.publish)
+                        .then(applyImage)
+                        .catch(() => fallback());
+                } else {
+                    fallback();
+                }
             });
             clearBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
