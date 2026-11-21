@@ -3,11 +3,13 @@
 // 例：发布者写"信息学部一教"，检索者输入"一教 / 第一教学楼 / 教一 / 1教 / 教学楼一"
 //     都应命中；"图书馆 / 图馆 / library"、"校医院 / 医务室"同理。
 //
-// 设计（第一性原理）：地点检索的本质是"把不同字面映射到同一实体"，分三层解决：
+// 设计（第一性原理）：地点检索的本质是"把不同字面映射到同一实体"，分四层解决：
 //   1) 强归一化 normalize()：全角转半角、大小写、中文数字→阿拉伯、去修饰词与标点、
 //      同义词合并（教学楼→教、餐厅→食堂…），让规则化表述天然收敛到同一形式；
 //   2) 别名表 LOCATION_ALIASES：覆盖无法用规则推导的叫法（珞珈湖→湖畔花园等）；
-//   3) 双向 token 匹配 tokens()/matchText()：既做归一化子串包含（保留原能力），
+//   3) 校区/学部层 AREA_ALIASES：独立于 normalize，因为 normalize 会把"信息学部/工学部"
+//      当修饰词删掉，"信息学部""信部"这类只指校区的查询会被清空 → 永远搜不到；
+//   4) 双向 token 匹配 tokens()/matchText()：既做归一化子串包含（保留原能力），
 //      又做"查询与文本是否指向同一地点键"的集合交集，从而兼顾召回与精度。
 //
 // 兼容：本文件顶层只有数据与纯函数，无 window/document 依赖。
@@ -104,6 +106,86 @@
     return s;
   }
 
+  // ---------- 2.5 校区 / 学部层（独立于 normalize） ----------
+  // 为什么必须单开一层：normalize() 把「信息学部 / 工学部」当修饰词删掉（这样「一教」才能
+  // 命中「信息学部一教」），副作用是校区信息也一起丢失 ——「信息学部」「信部」这类只指校区
+  // 的查询归一化后变成空串，tokens 为空、字面包含也不成立，于是永远搜不到任何东西。
+  // 这里用「不删修饰词」的轻归一化单独抽校区键，用 @ 前缀与教学楼层（教1）区分：
+  //   tokens('信息学部一教') -> ['@信息学部', '教1']
+  //   tokens('信部')         -> ['@信息学部']
+  // 匹配时：两侧都指明校区就先校验校区一致，再做键交集，避免「信部一教」命中「工学部一教」。
+  const AREA_ALIASES = {
+    '信息学部': ['信息学部', '信部', '信息部', '信息学院', '信院'],
+    '工学部': ['工学部', '工部', '工学院', '工院'],
+    '医学部': ['医学部', '医部', '医学院', '医学校区'],
+    '文理学部': ['文理学部', '文理部', '文部', '理学部', '文学部', '文学院', '理学院']
+  };
+
+  // 「工部」是「勤工部 / 社工部」的子串、「信部」是「通信部」的子串：落在这些更长的词里时不算校区。
+  const AREA_FALSE_FRIENDS = ['勤工部', '社工部', '通信部', '信息部门'];
+
+  // 不删修饰词的轻归一化：只做全角→半角、小写、去标点。
+  function lightNormalize(text) {
+    return stripNoise(toHalfWidth(text).toLowerCase());
+  }
+
+  const AREA_ALIAS_LIST = [];
+  for (const key of Object.keys(AREA_ALIASES)) {
+    for (const alias of AREA_ALIASES[key]) {
+      const t = lightNormalize(alias);
+      if (t) AREA_ALIAS_LIST.push({ key: '@' + key, text: t });
+    }
+  }
+  // 长词优先：「文理学部」先于「理学部」被识别（二者同键，顺序影响可预期性）。
+  AREA_ALIAS_LIST.sort(function (a, b) { return b.text.length - a.text.length; });
+
+  /**
+   * 从原始文本中扫描校区键。跑在 lightNormalize 结果上，因此不受 FILLER_WORDS 影响。
+   */
+  function scanAreas(text) {
+    const s = lightNormalize(text);
+    const found = Object.create(null);
+    if (!s) return [];
+    for (const item of AREA_ALIAS_LIST) {
+      let from = 0;
+      let idx;
+      while ((idx = s.indexOf(item.text, from)) !== -1) {
+        from = idx + item.text.length;
+        let blocked = false;
+        for (const bad of AREA_FALSE_FRIENDS) {
+          const p = s.indexOf(bad);
+          if (p !== -1 && idx >= p && idx < p + bad.length) { blocked = true; break; }
+        }
+        if (!blocked) { found[item.key] = true; break; }
+      }
+    }
+    return Object.keys(found);
+  }
+
+  function isAreaKey(key) {
+    return typeof key === 'string' && key.charAt(0) === '@';
+  }
+
+  /**
+   * 查询侧的校区键：除字面命中别名外，还接受"校区名的不完整前缀"（如"信息学"→信息学部）。
+   * 用户常只打一半；该规则只用于关键词侧，文本侧不启用，避免描述里的半截词误伤。
+   */
+  function queryAreaKeys(text) {
+    const keys = scanAreas(text);
+    const s = lightNormalize(text);
+    if (s.length >= 2) {
+      for (const item of AREA_ALIAS_LIST) {
+        if (item.text.indexOf(s) === 0 && keys.indexOf(item.key) === -1) keys.push(item.key);
+      }
+    }
+    return keys;
+  }
+
+  function intersect(a, b) {
+    for (const key of a) if (b.indexOf(key) !== -1) return true;
+    return false;
+  }
+
   // ---------- 2. 别名表（规则无法推导的叫法） ----------
   // canonical key 用归一化后的形式书写，避免运行时再翻译。
   const LOCATION_ALIASES = {
@@ -139,12 +221,14 @@
 
   /**
    * 抽取一段文本指向的所有地点键（集合）。
-   * 规则：归一化后精确命中别名索引，或包含某个别名，或形如"N教"。
+   * 规则：校区层扫描（@学部键）+ 归一化后命中别名索引 + 包含某个别名 + 形如"N教"。
    */
   function tokens(text) {
     const n = normalize(text);
     const found = Object.create(null);
-    if (!n) return [];
+    // 校区层跑在原始文本上，避免被 normalize 的修饰词删除清空。
+    for (const areaKey of scanAreas(text)) found[areaKey] = true;
+    if (!n) return Object.keys(found);
     for (const aliasNorm of Object.keys(ALIAS_INDEX)) {
       if (aliasNorm && n.indexOf(aliasNorm) !== -1) found[ALIAS_INDEX[aliasNorm]] = true;
     }
@@ -160,24 +244,30 @@
 
   /**
    * 关键词与一段文本是否"指向同一地点 / 内容命中"。
-   * 保留原 includes 语义（归一化后互相包含），再叠加地点键交集。
+   * 顺序：地点键（先校验校区一致，再取交集）→ 单侧为已知地点则否 → 普通关键词字面包含。
    * 单字符查询不做包含匹配（避免"一"命中"301"之类误伤），只认精确或同键。
    */
   function matchText(keyword, text) {
+    const ks = tokens(keyword);
+    for (const qa of queryAreaKeys(keyword)) if (ks.indexOf(qa) === -1) ks.push(qa);
+    const kt = tokens(text);
     const nk = normalize(keyword);
     const nt = normalize(text);
+
+    if (ks.length && kt.length) {
+      // 校区一致性：两侧都点明校区时，校区必须相同（"信部一教"不该命中"工学部一教"）。
+      const areaQ = ks.filter(isAreaKey);
+      const areaT = kt.filter(isAreaKey);
+      if (areaQ.length && areaT.length && !intersect(areaQ, areaT)) return false;
+      return intersect(ks, kt);
+    }
+
+    // 查询本身是已知地点：只认地点键，不走字面。
+    // 否则 normalize('一教')='1教' 会作为子串误命中 '301教室'。
+    if (ks.length) return false;
+
     if (!nk || !nt) return false;
     if (nk === nt) return true;
-
-    const ks = tokens(keyword);
-    if (ks.length) {
-      // 查询是已知地点：只认地点键交集，不走子串。
-      // 否则 normalize('一教')='1教' 会作为子串误命中 '301教室'。
-      // 文本若真指向该地点，其别名必然能被 tokens 识别，不会出现漏配。
-      const kt = tokens(text);
-      for (const k of ks) if (kt.indexOf(k) !== -1) return true;
-      return false;
-    }
 
     // 普通关键词：保持原 includes 语义（文本包含查询），单字符不做包含以免误伤。
     // 注意：这里刻意不做 nk.indexOf(nt) 的反向包含，与原前端行为一致。
@@ -216,6 +306,11 @@
     const out = [];
     const keys = tokens(keyword);
     for (const key of keys) {
+      if (isAreaKey(key)) {
+        const list = AREA_ALIASES[key.slice(1)];
+        if (list) for (const a of list) out.push(a);
+        continue;
+      }
       const aliases = LOCATION_ALIASES[key];
       if (aliases) for (const a of aliases) out.push(a);
       if (/^教\d+$/.test(key)) {
@@ -234,6 +329,7 @@
     matchLocation: matchLocation,
     matchItem: matchItem,
     expandAliases: expandAliases,
-    LOCATION_ALIASES: LOCATION_ALIASES
+    LOCATION_ALIASES: LOCATION_ALIASES,
+    AREA_ALIASES: AREA_ALIASES
   };
 });

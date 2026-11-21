@@ -78,6 +78,45 @@ let negOk = 0;
 for (const [a, b] of negatives) if (!VmAlias.matchLocation(a, b)) negOk++;
 check('不同地点不误伤（' + negOk + '/' + negatives.length + '）', negOk === negatives.length);
 
+// ---- 校区/学部层（PR16：修复"信部"搜不到"信息学部一教"）----
+// 缺陷根因：normalize() 把"信息学部"当修饰词删掉，只指校区的查询归一化后为空串。
+check('tokens：信息学部一教 同时含校区键与教楼键',
+    VmAlias.tokens('信息学部一教').indexOf('@信息学部') !== -1 &&
+    VmAlias.tokens('信息学部一教').indexOf('教1') !== -1,
+    JSON.stringify(VmAlias.tokens('信息学部一教')));
+check('tokens：信部 → @信息学部', JSON.stringify(VmAlias.tokens('信部')) === '["@信息学部"]',
+    JSON.stringify(VmAlias.tokens('信部')));
+
+const areaVariants = ['信部', '信息学部', '信息学', '信息部', '信息学院', '信院'];
+let areaOk = 0;
+for (const v of areaVariants) if (VmAlias.matchLocation(v, '信息学部一教')) areaOk++;
+check('校区表述互通：' + areaVariants.join('/') + ' 均命中信息学部一教（' + areaOk + '/' + areaVariants.length + '）',
+    areaOk === areaVariants.length);
+
+check('校区 + 楼栋组合：信部一教 命中 信息学部一教', VmAlias.matchLocation('信部一教', '信息学部一教'));
+check('校区 + 楼栋组合：信息学部第一教学楼 命中 信息学部一教',
+    VmAlias.matchLocation('信息学部第一教学楼', '信息学部一教'));
+
+const areaNegatives = [
+    ['信部', '工学部一教'],          // 校区不同
+    ['信部一教', '工学部一教'],      // 校区冲突时不能靠"教1"蒙过
+    ['工部', '信息学部一教'],
+    ['医部', '信息学部一教'],
+    ['工部', '勤工部'],              // "勤工部"不是校区
+    ['信部', '通信部']               // "通信部"不是校区
+];
+let areaNegOk = 0;
+for (const [a, b] of areaNegatives) if (!VmAlias.matchLocation(a, b)) areaNegOk++;
+check('校区不误伤（' + areaNegOk + '/' + areaNegatives.length + '）', areaNegOk === areaNegatives.length);
+
+check('matchItem：信部 命中 location=信息学部一教',
+    VmAlias.matchItem('信部', { title: '薯片', location: '信息学部一教', description: '', category: '食品' }));
+check('matchItem：信部 不命中 location=工学部一教',
+    !VmAlias.matchItem('信部', { title: '水杯', location: '工学部一教', description: '', category: '生活' }));
+check('expandAliases：信部 展开为校区名列表',
+    JSON.stringify(VmAlias.expandAliases('信部')) === '["信息学部","信部","信息部","信息学院","信院"]',
+    JSON.stringify(VmAlias.expandAliases('信部')));
+
 // 普通关键词保持原 includes 语义
 check('普通词：钱包 命中 黑色钱包', VmAlias.matchText('钱包', '黑色钱包'));
 check('普通词：不相关词不命中', !VmAlias.matchText('雨伞', '黑色钱包'));
@@ -128,6 +167,23 @@ for (const page of ['found', 'lost']) {
     check(page + '.html vm：搜"一教"命中"信息学部一教"',
         Array.isArray(out) && out.length === 1 && out[0].id === 1,
         JSON.stringify(out && out.map(x => x.id)));
+
+    // 校区检索：发布者写"信息学部一教"，检索者只打"信部"也应命中
+    const ctx2 = { window: { LocationAlias: VmAlias } };
+    vm.createContext(ctx2);
+    vm.runInContext(`
+        var items = [
+          {id:1,title:'薯片',location:'信息学部一教',description:'',category:'食品'},
+          {id:2,title:'耳机',location:'图书馆',description:'自习室',category:'电子类'},
+          {id:3,title:'水杯',location:'工学部一教',description:'',category:'生活类'}
+        ];
+        var kw='信部';
+        var out = items.filter(i => window.LocationAlias.matchItem(kw, i));
+    `, ctx2);
+    const out2 = ctx2.out;
+    check(page + '.html vm：搜"信部"命中"信息学部一教"且不误命中工学部',
+        Array.isArray(out2) && out2.length === 1 && out2[0].id === 1,
+        JSON.stringify(out2 && out2.map(x => x.id)));
 }
 
 // 网页首页搜索框把 q 带到列表页（原有链路，确认未被破坏）
