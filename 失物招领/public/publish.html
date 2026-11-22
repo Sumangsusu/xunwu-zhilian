@@ -621,8 +621,14 @@ profile.html
                 }
 
                 try {
-                    await DB.add(newItem);
-                    alert('发布成功！您的信息已存入服务器数据库，AI将自动为您匹配相关物品。');
+                    const res = await DB.add(newItem);
+                    const hits = res && Array.isArray(res.matches) ? res.matches : [];
+                    if (hits.length > 0) {
+                        alert('发布成功！系统已在站内找到 ' + hits.length + ' 条疑似匹配。\n最接近的一条：' + hits[0].title + '（匹配度 ' + hits[0].score + '）\n可在「个人中心 → 疑似匹配」查看。');
+                        location.href = 'profile.html#matches';
+                        return;
+                    }
+                    alert('发布成功！您的信息已展示在列表中，系统会持续为它寻找匹配。');
                     location.href = currentPublishType === 'lost' ? 'lost.html' : 'found.html';
                 } catch (err) {
                     alert(err.message);
