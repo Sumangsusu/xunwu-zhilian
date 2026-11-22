@@ -40,6 +40,20 @@ CREATE TABLE IF NOT EXISTS items (
   created_at  INTEGER NOT NULL
 );
 
+-- 双向撮合结果：item_id 是"我的启事"，match_id 是"对方的启事"，每个方向各存一行。
+CREATE TABLE IF NOT EXISTS item_matches (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  item_id    INTEGER NOT NULL,
+  match_id   INTEGER NOT NULL,
+  score      INTEGER NOT NULL,
+  reasons    TEXT NOT NULL DEFAULT '[]',
+  seen       INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  UNIQUE(item_id, match_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_item_matches_owner ON item_matches(item_id, seen);
+
 CREATE TABLE IF NOT EXISTS feedback (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id     INTEGER,
