@@ -23,6 +23,8 @@ if (typeof window.safeImageUrl !== 'function') {
 }
 
 let currentUser = null;
+// 未读撮合数：由 /api/auth/me 带回，用于导航红点
+let matchUnread = 0;
 
 // ---------------- API 客户端 ----------------
 // 会话基于后端写入的 HttpOnly Cookie，前端不再存储令牌；fetch 携带 same-origin 凭据即可。
@@ -66,12 +68,15 @@ const UserDB = {
             const data = await api.get('/api/auth/me');
             if (!data || !data.success || !data.user) {
                 currentUser = null;
+                matchUnread = 0;
                 return false;
             }
             currentUser = data.user;
+            matchUnread = Number(data.matchUnread) || 0;
             return true;
         } catch (e) {
             currentUser = null;
+            matchUnread = 0;
             return false;
         }
     },
@@ -118,6 +123,8 @@ const UserDB = {
     },
 
     getCurrent() { return currentUser; },
+    getMatchUnread() { return matchUnread; },
+    setMatchUnread(n) { matchUnread = Number(n) || 0; },
     isLoggedIn() { return currentUser !== null; }
 };
 
@@ -127,13 +134,17 @@ const DB = {
     async getLost() { const d = await api.get('/api/items?type=lost'); return d.items; },
     async getFound() { const d = await api.get('/api/items?type=found'); return d.items; },
     async getById(id) { const d = await api.get('/api/items/' + id); return d.item; },
-    async add(item) { const d = await api.post('/api/items', item); return d.item; },
+    // 返回完整响应：{ item, matches }，发布页据此提示"已在站内找到 N 条"
+    async add(item) { return await api.post('/api/items', item); },
     async matchByFeatures(query) { const d = await api.post('/api/items/match', query); return d.items; },
     async getStats() { const d = await api.get('/api/items/stats'); return d.stats; },
     // 我发布的全部启事（含已撤销）
     async getMy() { const d = await api.get('/api/items/mine'); return d.items; },
     // 撤销(removed)/恢复(active) 自己的启事，管理员可操作任意启事
-    async setStatus(id, status) { const d = await api.patch('/api/items/' + id + '/status', { status }); return d; }
+    async setStatus(id, status) { const d = await api.patch('/api/items/' + id + '/status', { status }); return d; },
+    // 双向撮合：系统为我的启事找到的疑似同一件物品（只含公开字段）
+    async getMatches() { const d = await api.get('/api/matches'); return d; },
+    async markMatchesSeen() { const d = await api.post('/api/matches/seen', {}); return d; }
 };
 
 // ---------------- 意见反馈 ----------------
@@ -143,6 +154,25 @@ const Feedback = {
 };
 
 // ---------------- 鉴权与导航 ----------------
+// 导航红点：有未读撮合时，在指向个人中心的链接后追加一个小圆点
+function paintMatchBadge(count) {
+    const n = Number(count) || 0;
+    const links = document.querySelectorAll('a[href$="profile.html"]');
+    for (const link of links) {
+        const old = link.querySelector('.match-dot');
+        if (!n) {
+            if (old) old.remove();
+            continue;
+        }
+        if (old) continue;
+        const dot = document.createElement('span');
+        dot.className = 'match-dot';
+        dot.setAttribute('aria-label', '有新的疑似匹配');
+        dot.style.cssText = 'display:inline-block;width:6px;height:6px;border-radius:50%;background:#ef4444;margin-left:4px;vertical-align:middle;';
+        link.appendChild(dot);
+    }
+}
+
 // 页面加载时校验登录，未登录跳转到登录页（携带来源地址）
 async function requireAuth() {
     const loggedIn = await UserDB.init();
@@ -157,6 +187,7 @@ async function requireAuth() {
     if (navUsername) navUsername.textContent = user.username;
     if (userArea) userArea.classList.remove('hidden');
     updateNavAvatar(user);
+    paintMatchBadge(matchUnread);
     highlightNav();
     initMobileMenu();
     return true;
@@ -172,6 +203,7 @@ async function softInitNav() {
         if (navUsername) navUsername.textContent = user.username;
         if (userArea) userArea.classList.remove('hidden');
         updateNavAvatar(user);
+        paintMatchBadge(matchUnread);
     }
     highlightNav();
     initMobileMenu();

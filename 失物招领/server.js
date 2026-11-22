@@ -15,6 +15,7 @@ const { buildMapConfig, mapCspSources } = require('./map-config');
 const ocr = require('./ocr');
 const recognize = require('./recognize');
 const locationAlias = require('./public/js/location-alias');
+const matcher = require('./matcher');
 
 const app = express();
 app.set('trust proxy', config.trustProxy || false);
@@ -115,6 +116,70 @@ function requireAdmin(req, res, next) {
   next();
 }
 
+// ==================== 双向撮合 ====================
+// 新启事入库时立即与反向类型的在架启事比对，命中阈值就双向写入 item_matches，
+// 两边（失主和拾取者）都能在个人中心看到"疑似同一件物品"。
+const insertMatch = db.prepare(
+  'INSERT OR IGNORE INTO item_matches (item_id, match_id, score, reasons, seen, created_at) VALUES (?, ?, ?, ?, 0, ?)'
+);
+
+function activeOppositeItems(item) {
+  const rows = db.prepare("SELECT * FROM items WHERE status = 'active' AND type != ? AND id != ?")
+    .all(item.type, item.id);
+  return rows.map(mapItem);
+}
+
+// 计算并落库一条启事的全部匹配（双向），返回本次命中的对方启事
+function persistMatches(item) {
+  const hits = matcher.rank(item, activeOppositeItems(item));
+  if (!hits.length) return [];
+  const now = Date.now();
+  db.transaction(() => {
+    for (const hit of hits) {
+      const reasons = JSON.stringify(hit.reasons);
+      insertMatch.run(item.id, hit.item.id, hit.score, reasons, now);
+      insertMatch.run(hit.item.id, item.id, hit.score, reasons, now);
+    }
+  })();
+  return hits;
+}
+
+// 首次启动时给历史数据补一遍匹配；表里已有数据则跳过，避免覆盖 seen 状态
+function backfillMatches() {
+  const existing = db.prepare('SELECT COUNT(*) AS c FROM item_matches').get().c;
+  if (existing > 0) return 0;
+  const rows = db.prepare("SELECT * FROM items WHERE status = 'active'").all().map(mapItem);
+  // 数据量过大时不做 O(n²) 全量补算，避免拖慢启动
+  if (rows.length > 2000) return 0;
+  const now = Date.now();
+  let pairs = 0;
+  db.transaction(() => {
+    for (let i = 0; i < rows.length; i += 1) {
+      for (let j = i + 1; j < rows.length; j += 1) {
+        const a = rows[i];
+        const b = rows[j];
+        if (a.type === b.type) continue;
+        if (a.publisher && b.publisher && a.publisher === b.publisher) continue;
+        const result = matcher.scorePair(a, b);
+        if (result.score < matcher.THRESHOLD) continue;
+        const reasons = JSON.stringify(result.reasons);
+        insertMatch.run(a.id, b.id, result.score, reasons, now);
+        insertMatch.run(b.id, a.id, result.score, reasons, now);
+        pairs += 1;
+      }
+    }
+  })();
+  if (pairs) console.log('[撮合] 已为历史数据补算 ' + pairs + ' 对匹配');
+  return pairs;
+}
+
+const unreadMatchCount = (username) => db.prepare(
+  `SELECT COUNT(*) AS c FROM item_matches m
+   JOIN items i ON i.id = m.item_id
+   JOIN items o ON o.id = m.match_id
+   WHERE i.publisher = ? AND i.status = 'active' AND o.status = 'active' AND m.seen = 0`
+).get(username).c;
+
 // ==================== 认证相关 API ====================
 
 // 注册
@@ -175,9 +240,9 @@ app.get('/api/auth/config', (_req, res) => {
   return res.json({ success: true, casEnabled: false });
 });
 
-// 获取当前登录用户信息
+// 获取当前登录用户信息（附带未读撮合数，供导航红点使用）
 app.get('/api/auth/me', authRequired, (req, res) => {
-  return res.json({ success: true, user: req.user });
+  return res.json({ success: true, user: req.user, matchUnread: unreadMatchCount(req.user.username) });
 });
 
 // 更新个人资料（头像、个性签名）
@@ -332,6 +397,53 @@ app.post('/api/items/match', (req, res) => {
   return res.json({ success: true, items });
 });
 
+// 我的启事的疑似匹配（需登录）。只返回 publicItem 视图，联系方式仍走防冒领问答解锁。
+app.get('/api/matches', authRequired, (req, res) => {
+  const rows = db.prepare(
+    `SELECT m.id, m.item_id, m.match_id, m.score, m.reasons, m.seen, m.created_at
+     FROM item_matches m
+     JOIN items i ON i.id = m.item_id
+     JOIN items o ON o.id = m.match_id
+     WHERE i.publisher = ? AND i.status = 'active' AND o.status = 'active'
+     ORDER BY m.seen ASC, m.score DESC, m.id DESC
+     LIMIT 50`
+  ).all(req.user.username);
+
+  const getItem = db.prepare('SELECT * FROM items WHERE id = ?');
+  const items = [];
+  let unread = 0;
+  for (const row of rows) {
+    const own = getItem.get(row.item_id);
+    const other = getItem.get(row.match_id);
+    if (!own || !other) continue;
+    if (!row.seen) unread += 1;
+    const ownItem = mapItem(own);
+    items.push({
+      matchId: row.id,
+      score: row.score,
+      seen: Boolean(row.seen),
+      reasons: JSON.parse(row.reasons || '[]'),
+      createdAt: row.created_at,
+      own: { id: ownItem.id, type: ownItem.type, title: ownItem.title, date: ownItem.date, location: ownItem.location },
+      other: publicItem(mapItem(other))
+    });
+  }
+  return res.json({ success: true, unread, items });
+});
+
+// 未读数（导航红点轮询用）
+app.get('/api/matches/unread', authRequired, (req, res) => {
+  return res.json({ success: true, unread: unreadMatchCount(req.user.username) });
+});
+
+// 标记已读：默认清空当前用户全部启事的未读匹配
+app.post('/api/matches/seen', authRequired, (req, res) => {
+  const info = db.prepare(
+    'UPDATE item_matches SET seen = 1 WHERE item_id IN (SELECT id FROM items WHERE publisher = ?)'
+  ).run(req.user.username);
+  return res.json({ success: true, updated: info.changes });
+});
+
 // 对仍未回填的旧数据沿用地点推断，支持独立发布经纬度的客户端。
 app.get('/api/items/heatmap', (_req, res) => {
   const rows = db.prepare("SELECT * FROM items WHERE status = 'active'").all();
@@ -448,7 +560,27 @@ app.post('/api/items', authRequired, publishLimit, (req, res) => {
   }
 
   const row = db.prepare('SELECT * FROM items WHERE id = ?').get(info.lastInsertRowid);
-  return res.status(201).json({ success: true, item: mapItem(row) });
+  const item = mapItem(row);
+
+  // 入库后立刻做一次双向撮合；撮合出错不影响发布本身。
+  let hits = [];
+  try {
+    hits = persistMatches(item);
+  } catch (err) {
+    console.error('[撮合] 计算失败：', err.message);
+  }
+
+  return res.status(201).json({
+    success: true,
+    item,
+    matches: hits.map((hit) => ({
+      id: hit.item.id,
+      type: hit.item.type,
+      title: hit.item.title,
+      score: hit.score,
+      reasons: hit.reasons
+    }))
+  });
 });
 
 // 更新启事状态（PATCH /api/items/:id/status）
@@ -629,4 +761,9 @@ app.use((err, _req, res, _next) => {
 
 app.listen(config.port, config.host, () => {
   console.log('寻物智联服务已启动，监听 ' + config.host + ':' + config.port);
+  try {
+    backfillMatches();
+  } catch (err) {
+    console.error('[撮合] 历史数据补算失败：', err.message);
+  }
 });

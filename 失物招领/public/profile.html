@@ -191,6 +191,21 @@ publish.html
                         </div>
                     </div>
 
+                    <!-- 疑似匹配（系统双向撮合结果） -->
+                    <div class="card-art p-8" id="matches">
+                        <h4 class="text-lg font-semibold text-slate-800 mb-1 font-display flex items-center gap-2">
+                            <i class="fa fa-link text-secondary"></i>
+                            疑似匹配
+                            <span id="matchUnreadBadge" class="hidden px-2 py-0.5 text-xs rounded-full bg-red-100 text-red-600">新</span>
+                        </h4>
+                        <p class="text-sm text-slate-500 mb-4">发布启事后，系统会自动与反向启事比对地点、时间、类别与特征，匹配度 60 以上才会出现在这里。点开仍是防冒领问答流程。</p>
+                        <div id="matchList" class="space-y-3"></div>
+                        <div id="matchEmpty" class="text-center py-8 text-slate-400 text-sm">
+                            <i class="fa fa-search mr-1"></i>
+                            暂无匹配，有新的疑似启事时会自动出现在这里
+                        </div>
+                    </div>
+
                     <!-- 我的发布 -->
                     <div class="card-art p-8" id="publish">
                         <h4 class="text-lg font-semibold text-slate-800 mb-4 font-display flex items-center gap-2">
@@ -329,6 +344,74 @@ publish.html
             }
         }
 
+        // 渲染疑似匹配（系统双向撮合结果）
+        async function renderMatches() {
+            const listEl = document.getElementById('matchList');
+            const emptyEl = document.getElementById('matchEmpty');
+            const badge = document.getElementById('matchUnreadBadge');
+
+            let data;
+            try {
+                data = await DB.getMatches();
+            } catch (e) {
+                return;
+            }
+            const items = (data && data.items) || [];
+            if (badge) badge.classList.toggle('hidden', !(data && data.unread));
+
+            if (!items.length) {
+                listEl.innerHTML = '';
+                emptyEl.classList.remove('hidden');
+                return;
+            }
+            emptyEl.classList.add('hidden');
+
+            listEl.innerHTML = items.map(function (m) {
+                const other = m.other || {};
+                const own = m.own || {};
+                const score = Math.min(100, Number(m.score) || 0);
+                const ownBadge = own.type === 'lost'
+                    ? '<span class="px-1.5 py-0.5 rounded bg-red-100 text-red-600">寻物</span>'
+                    : '<span class="px-1.5 py-0.5 rounded bg-green-100 text-green-600">招领</span>';
+                const otherBadge = other.type === 'lost'
+                    ? '<span class="px-1.5 py-0.5 rounded bg-red-100 text-red-600">寻物</span>'
+                    : '<span class="px-1.5 py-0.5 rounded bg-green-100 text-green-600">招领</span>';
+                const reasons = (m.reasons || []).map(function (r) {
+                    return '<span class="px-1.5 py-0.5 text-xs rounded bg-white border border-slate-200 text-slate-500">' + esc(r) + '</span>';
+                }).join('');
+
+                return `
+                    <div class="p-4 bg-slate-50 rounded-xl ${m.seen ? '' : 'ring-1 ring-primary/30'}">
+                        <div class="flex items-center gap-2 text-xs text-slate-500 mb-2 flex-wrap">
+                            <span>你的启事</span>${ownBadge}
+                            <span class="truncate max-w-[9rem] text-slate-600">${esc(own.title || '')}</span>
+                            <i class="fa fa-arrow-right text-slate-300"></i>
+                            <span>疑似</span>${otherBadge}
+                            <span class="ml-auto font-medium text-primary">匹配度 ${Math.round(score)}</span>
+                        </div>
+                        <div class="flex items-center gap-4 cursor-pointer" onclick="showItemDetail(${Number(other.id) || 0})">
+                            ${itemImgHtml(other, "w-14 h-14 rounded-lg object-cover")}
+                            <div class="flex-1 min-w-0">
+                                <div class="font-medium text-slate-800 truncate">${esc(other.title || '')}</div>
+                                <div class="text-xs text-slate-500 mt-1">${esc(other.date || '')} · ${esc(other.location || '')}</div>
+                                <div class="flex flex-wrap gap-1 mt-1.5">${reasons}</div>
+                            </div>
+                            <i class="fa fa-chevron-right text-slate-300"></i>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            if (data && data.unread) {
+                try {
+                    await DB.markMatchesSeen();
+                    UserDB.setMatchUnread(0);
+                    paintMatchBadge(0);
+                } catch (e) { /* 标记失败不影响展示 */ }
+                if (badge) badge.classList.add('hidden');
+            }
+        }
+
         // 渲染我的发布
         async function renderMyPublish() {
             const user = UserDB.getCurrent();
@@ -428,11 +511,12 @@ publish.html
             const user = UserDB.getCurrent();
             fillProfile(user);
             window.refreshAfterItemChange = renderMyPublish;
+            await renderMatches();
             await renderMyPublish();
 
-            // 支持导航栏"我的发布"直接定位
-            if (location.hash === '#publish') {
-                const el = document.getElementById('publish');
+            // 支持导航栏"我的发布"/发布成功后的"疑似匹配"直接定位
+            if (location.hash === '#publish' || location.hash === '#matches') {
+                const el = document.getElementById(location.hash.slice(1));
                 if (el) el.scrollIntoView({ behavior: 'smooth' });
             }
         });
