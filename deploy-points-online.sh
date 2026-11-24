@@ -5,7 +5,14 @@
 
 set -e
 
-SRC="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+# 本脚本位于仓库根，真正的应用源码在「失物招领」子目录，需向下定位 server.js
+SRC="$(dirname "$(find "$ROOT" -maxdepth 3 -type f -name server.js | head -1)")"
+if [ -z "$SRC" ] || [ ! -f "$SRC/server.js" ]; then
+  echo "FAIL: 源码目录定位失败（未在 $ROOT 下找到 server.js）"
+  ls -1 "$ROOT" | head -20
+  exit 1
+fi
 DST="$(dirname "$(find /opt/xunwu-zhilian -maxdepth 3 -type f -name server.js | head -1)")"
 
 if [ -z "$DST" ] || [ ! -f "$DST/server.js" ]; then
@@ -39,6 +46,17 @@ if [ -d "$SRC/public" ]; then
   cp -rf "$SRC/public/." "$DST/public/"
   echo "sync public/"
 fi
+
+# 同步后强制校验，避免「路径错了但脚本仍退出 0」的静默失败
+if ! grep -q "api/points" "$DST/server.js"; then
+  echo "FAIL: 宿主机 server.js 未包含积分路由，同步未生效"
+  exit 1
+fi
+if [ ! -f "$DST/points.js" ] || [ ! -f "$DST/public/points.html" ]; then
+  echo "FAIL: points.js 或 public/points.html 未同步到位"
+  exit 1
+fi
+echo "sync verified: server.js + points.js + public/points.html"
 
 # ---------- 3. 定位运行容器 ----------
 cd "$DST"
