@@ -1,4 +1,5 @@
 const fs = require('node:fs');
+const config = require('./config');
 const { calibrationPath } = require('./config');
 const { CAMPUS_ZONES } = require('./public/js/campus-map');
 
@@ -16,6 +17,22 @@ function validPair(a, b, minA, maxA, minB, maxB) {
     Number.isFinite(b) && b >= minB && b <= maxB;
 }
 
+// 无实测标定文件时的离线折算：以 .env 的校园中心点为原点，按示意图线性外推各区域坐标。
+// 注意：这是降级近似（约 2 米 / SVG 单位），只用于无 key 的示意图模式做半径匹配与热力分布，
+// 不作为实测坐标对外宣称；一旦放入实测标定表，此分支自动失效。
+function approxGeo(mapX, mapY) {
+  const lng = Number(config.mapCenterLng);
+  const lat = Number(config.mapCenterLat);
+  if (!Number.isFinite(lng) || !Number.isFinite(lat)) return null;
+  const metersPerUnit = 2;
+  const lngPerMeter = 1 / (111320 * Math.cos(lat * Math.PI / 180));
+  const latPerMeter = 1 / 110540;
+  return {
+    lng: lng + (Number(mapX) - 500) * metersPerUnit * lngPerMeter,
+    lat: lat - (Number(mapY) - 350) * metersPerUnit * latPerMeter
+  };
+}
+
 // 标定文件历史上存在两种写法，同一路径 data/campus-calibration.json：
 //   旧格式（DEPLOY.md / migrate-coords.js）：{ "图书馆": { lng, lat }, ... }
 //   新格式（map-config.js / 验收脚本）：{ center:{lng,lat}, zoom, zones:[{name,lng,lat},...] }
@@ -25,7 +42,12 @@ function loadCalibration() {
   try {
     source = JSON.parse(fs.readFileSync(calibrationPath, 'utf8'));
   } catch (err) {
-    if (err.code === 'ENOENT') return [];
+    if (err.code === 'ENOENT') {
+      return zones.map((zone) => {
+        const geo = approxGeo(zone.mapX, zone.mapY);
+        return geo ? { ...zone, ...geo, approx: true } : null;
+      }).filter(Boolean);
+    }
     throw err;
   }
   if (!source || Array.isArray(source) || typeof source !== 'object') {
@@ -80,4 +102,4 @@ function coordinates({ mapX, mapY, lng, lat, location }) {
   return { mapX: null, mapY: null, lng: null, lat: null, ...svg, ...geo };
 }
 
-module.exports = { coordinates, validPair, calibration };
+module.exports = { coordinates, validPair, calibration, approxGeo };

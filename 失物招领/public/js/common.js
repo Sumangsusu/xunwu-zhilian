@@ -392,23 +392,42 @@ function renderItemDetail(item) {
     document.body.style.overflow = 'hidden';
 }
 
-// ---------------- 防冒领问答（认领前答题解锁完整联系方式） ----------------
+// ---------------- 防冒领问答（选择 / 判断 / 填空，按次数解锁联系方式） ----------------
 function renderQuizSection(item) {
-    const questionsHtml = (item.quiz || []).map((q, qi) => `
-        <div class="mt-3">
-            <div class="text-sm font-medium text-slate-700 mb-2">${qi + 1}. ${esc(q.q)}</div>
-            <div class="space-y-1.5">
-                ${q.options.map((opt, oi) => `
+    const id = Number(item.id) || 0;
+    const state = item.quizState || { attempts: 0, unlocked: false };
+    const max = Number(item.quizMaxAttempts) || 1;
+    const remaining = Math.max(0, max - Number(state.attempts || 0));
+    const locked = remaining === 0;
+    const typeLabel = { choice: '选择题', boolean: '判断题', blank: '填空题' };
+
+    const questionsHtml = (item.quiz || []).map((q, qi) => {
+        const type = q.type || 'choice';
+        let inputHtml;
+        if (type === 'blank') {
+            inputHtml = `
+                <input type="text" data-qi="${qi}" class="quiz-blank w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm focus:outline-none focus:border-primary"
+                       placeholder="请输入答案${q.hint ? '（' + q.hint + ' 个字）' : ''}" ${locked ? 'disabled' : ''}>`;
+        } else {
+            inputHtml = `<div class="space-y-1.5">
+                ${(q.options || []).map((opt, oi) => `
                 <label class="flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-white cursor-pointer hover:border-primary transition-colors text-sm text-slate-700">
-                    <input type="radio" name="quiz_${Number(item.id) || 0}_${qi}" value="${oi}" class="accent-primary">
+                    <input type="radio" name="quiz_${id}_${qi}" value="${oi}" class="accent-primary" ${locked ? 'disabled' : ''}>
                     <span>${esc(opt)}</span>
                 </label>`).join('')}
+            </div>`;
+        }
+        return `
+        <div class="mt-3">
+            <div class="text-sm font-medium text-slate-700 mb-2">
+                ${qi + 1}. ${esc(q.q)} <span class="text-[11px] font-normal text-slate-400">（${typeLabel[type] || '选择题'}）</span>
             </div>
-        </div>
-    `).join('');
+            ${inputHtml}
+        </div>`;
+    }).join('');
 
     return `
-        <div class="mt-4 p-4 bg-blue-50/70 border border-blue-200 rounded-xl" id="quizSection_${Number(item.id) || 0}">
+        <div class="mt-4 p-4 bg-blue-50/70 border border-blue-200 rounded-xl" id="quizSection_${id}">
             <div class="flex items-start gap-2 text-sm text-blue-700 mb-1">
                 <i class="fa fa-shield mt-0.5"></i>
                 <div>
@@ -416,12 +435,16 @@ function renderQuizSection(item) {
                     <p class="text-xs text-blue-600/80 mt-0.5">发布者设置了认领问答。全部答对后，上方隐藏的完整联系方式才会显示。</p>
                 </div>
             </div>
+            <div class="mt-2 text-xs ${locked ? 'text-red-600' : 'text-blue-700'}" id="quizRemaining_${id}">
+                <i class="fa ${locked ? 'fa-lock' : 'fa-clock-o'} mr-1"></i>
+                ${locked ? '答题次数已用完，请联系发布者' : '剩余作答次数：' + remaining + ' / ' + max}
+            </div>
             ${questionsHtml}
             <div class="mt-4 flex items-center gap-3">
-                <button onclick="submitQuiz(${Number(item.id) || 0})" class="px-5 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors">
-                    <i class="fa fa-check mr-1"></i>提交答案
+                <button onclick="submitQuiz(${id})" id="quizSubmit_${id}" ${locked ? 'disabled class="px-5 py-2 bg-slate-300 text-white rounded-lg text-sm cursor-not-allowed"' : 'class="px-5 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors"'}>
+                    <i class="fa fa-check mr-1"></i>${locked ? '次数已用完' : '提交答案'}
                 </button>
-                <span id="quizMsg_${Number(item.id) || 0}" class="text-xs"></span>
+                <span id="quizMsg_${id}" class="text-xs"></span>
             </div>
         </div>
     `;
@@ -434,15 +457,21 @@ async function submitQuiz(itemId) {
     const item = await DB.getById(itemId);
     if (!item || !item.quiz) return;
 
-    const answers = item.quiz.map((_, qi) => {
+    const answers = item.quiz.map((q, qi) => {
+        if ((q.type || 'choice') === 'blank') {
+            const input = section.querySelector('input.quiz-blank[data-qi="' + qi + '"]');
+            return input ? input.value.trim() : '';
+        }
         const checked = section.querySelector(`input[name="quiz_${itemId}_${qi}"]:checked`);
         return checked ? Number(checked.value) : -1;
     });
-    if (answers.some((a) => a < 0)) {
+    if (answers.some((a) => a === -1 || a === '')) {
         if (msg) { msg.textContent = '请回答所有问题'; msg.className = 'text-xs text-amber-600'; }
         return;
     }
 
+    const btn = document.getElementById('quizSubmit_' + itemId);
+    if (btn) btn.disabled = true;
     try {
         const resp = await fetch(apiUrl('/api/items/' + itemId + '/verify'), {
             method: 'POST',
@@ -451,7 +480,6 @@ async function submitQuiz(itemId) {
         });
         const data = await resp.json();
         if (data.correct) {
-            // 答对：更新联系方式显示并移除答题区
             const contactBox = section.previousElementSibling;
             if (contactBox && contactBox.querySelector('.font-semibold')) {
                 contactBox.querySelector('.font-semibold').textContent = data.contact;
@@ -462,9 +490,21 @@ async function submitQuiz(itemId) {
                 </div>`;
         } else {
             if (msg) { msg.textContent = data.message || '答案不正确'; msg.className = 'text-xs text-red-500'; }
+            const remainingEl = document.getElementById('quizRemaining_' + itemId);
+            if (remainingEl) {
+                const left = typeof data.remaining === 'number' ? data.remaining : 0;
+                remainingEl.className = 'mt-2 text-xs ' + (left === 0 ? 'text-red-600' : 'text-blue-700');
+                remainingEl.innerHTML = '<i class="fa ' + (left === 0 ? 'fa-lock' : 'fa-clock-o') + ' mr-1"></i>' +
+                    (left === 0 ? '答题次数已用完，请联系发布者' : '剩余作答次数：' + left + ' / ' + (item.quizMaxAttempts || 1));
+            }
+            if (data.locked) {
+                section.querySelectorAll('input').forEach((el) => { el.disabled = true; });
+                if (btn) { btn.disabled = true; btn.textContent = '次数已用完'; }
+            } else if (btn) btn.disabled = false;
         }
     } catch (e) {
         if (msg) { msg.textContent = '验证失败，请稍后重试'; msg.className = 'text-xs text-red-500'; }
+        if (btn) btn.disabled = false;
     }
 }
 

@@ -165,6 +165,32 @@
                     </div>
                 </div>
 
+                <!-- 数据可视化与一键导出 -->
+                <div class="card-art p-6 mb-10">
+                    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+                        <h2 class="font-bold text-lg font-display flex items-center gap-2"><i class="fa fa-bar-chart" style="color:var(--c-yellow)"></i>数据可视化</h2>
+                        <div class="flex flex-wrap gap-2">
+                            <select id="chartType" onchange="drawCategoryChart()" class="px-3 py-1.5 rounded-lg bg-white border-2 border-[var(--ink)] text-sm text-[var(--ink)] focus:outline-none">
+                                <option value="bar">条形图</option>
+                                <option value="pie">饼状图</option>
+                            </select>
+                            <button onclick="exportHeatmapPNG()" class="px-3 py-1.5 rounded-lg border-2 border-[var(--ink)] text-sm font-medium text-[var(--ink)] hover:bg-[var(--c-red)] hover:text-white transition-colors" style="background:var(--paper-card)"><i class="fa fa-download mr-1"></i>热力图 PNG</button>
+                            <button onclick="exportChartPNG()" class="px-3 py-1.5 rounded-lg border-2 border-[var(--ink)] text-sm font-medium text-[var(--ink)] hover:bg-[var(--c-blue)] hover:text-white transition-colors" style="background:var(--paper-card)"><i class="fa fa-download mr-1"></i>统计图 PNG</button>
+                            <button onclick="exportStatsCSV()" class="px-3 py-1.5 rounded-lg border-2 border-[var(--ink)] text-sm font-medium text-[var(--ink)] hover:bg-[var(--c-green)] hover:text-white transition-colors" style="background:var(--paper-card)"><i class="fa fa-file-excel-o mr-1"></i>明细 CSV</button>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div>
+                            <div class="text-xs text-slate-500 mb-2">失物热力分布（校园示意图 · 离线可导出）</div>
+                            <canvas id="heatmapCanvas" width="640" height="420" class="w-full rounded-lg" style="border:2px solid var(--ink);background:#F4EDDF"></canvas>
+                        </div>
+                        <div>
+                            <div class="text-xs text-slate-500 mb-2">失物种类分布</div>
+                            <canvas id="chartCanvas" width="640" height="420" class="w-full rounded-lg" style="border:2px solid var(--ink);background:#F4EDDF"></canvas>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- 管理操作 -->
                 <div class="flex flex-wrap gap-3 mb-10">
                     <button onclick="openFeedbackModal()" class="px-5 py-2.5 rounded-xl border-2 border-[var(--ink)] font-medium text-[var(--ink)] flex items-center gap-2 hover:bg-[var(--c-green)] hover:text-white transition-colors" style="background:var(--paper-card)">
@@ -410,7 +436,165 @@
         const items = await api('/api/admin/items');
         window.itemsData = items.items;
         renderItems();
+        drawAdminCharts();
         refreshFbBadge();
+    }
+
+    // ==================== 数据可视化与一键导出 ====================
+    const ADMIN_COLORS = ['#20304F', '#E0A500', '#2E7D6B', '#C0392B', '#8E6FAF', '#4A90E2', '#B5651D'];
+
+    function drawAdminCharts() {
+        drawHeatmap();
+        drawCategoryChart();
+    }
+
+    function drawHeatmap() {
+        const canvas = document.getElementById('heatmapCanvas');
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        const W = canvas.width, H = canvas.height;
+        ctx.fillStyle = '#F4EDDF';
+        ctx.fillRect(0, 0, W, H);
+
+        // 校园示意图分区（与自绘 SVG 同一坐标系）
+        const zones = [
+            { name: '图书馆', x: .07, y: .08, w: .26, h: .20 },
+            { name: '教学楼', x: .40, y: .08, w: .28, h: .20 },
+            { name: '食堂', x: .75, y: .08, w: .18, h: .20 },
+            { name: '体育馆', x: .07, y: .36, w: .24, h: .24 },
+            { name: '中心广场', x: .38, y: .36, w: .28, h: .24 },
+            { name: '宿舍区', x: .73, y: .36, w: .20, h: .24 },
+            { name: '校车站', x: .25, y: .70, w: .24, h: .18 },
+            { name: '操场', x: .57, y: .70, w: .30, h: .18 }
+        ];
+        ctx.font = '13px sans-serif';
+        zones.forEach((z, i) => {
+            ctx.fillStyle = i % 2 ? 'rgba(32,48,79,.045)' : 'rgba(32,48,79,.075)';
+            ctx.strokeStyle = 'rgba(32,48,79,.28)';
+            ctx.lineWidth = 1.5;
+            ctx.fillRect(z.x * W, z.y * H, z.w * W, z.h * H);
+            ctx.strokeRect(z.x * W, z.y * H, z.w * W, z.h * H);
+            ctx.fillStyle = 'rgba(32,48,79,.55)';
+            ctx.fillText(z.name, z.x * W + 8, z.y * H + 20);
+        });
+
+        const items = (window.itemsData || []).filter(i =>
+            i.status === 'active' && i.mapX != null && i.mapY != null);
+        items.forEach((it) => {
+            const x = 24 + (Number(it.mapX) / 1000) * (W - 48);
+            const y = 20 + (Number(it.mapY) / 700) * (H - 40);
+            const rgb = it.type === 'lost' ? '192,57,43' : '46,125,107';
+            const gradient = ctx.createRadialGradient(x, y, 0, x, y, 40);
+            gradient.addColorStop(0, 'rgba(' + rgb + ',0.55)');
+            gradient.addColorStop(1, 'rgba(' + rgb + ',0)');
+            ctx.fillStyle = gradient;
+            ctx.beginPath(); ctx.arc(x, y, 40, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = 'rgb(' + rgb + ')';
+            ctx.beginPath(); ctx.arc(x, y, 3.2, 0, Math.PI * 2); ctx.fill();
+        });
+
+        ctx.fillStyle = 'rgba(32,48,79,.85)';
+        ctx.font = 'bold 13px sans-serif';
+        ctx.fillText('失物热力分布 · 共 ' + items.length + ' 条已定位启事', 16, H - 14);
+        ctx.fillStyle = '#C0392B'; ctx.fillRect(W - 168, H - 26, 12, 12);
+        ctx.fillStyle = '#2E7D6B'; ctx.fillRect(W - 88, H - 26, 12, 12);
+        ctx.fillStyle = '#20304F'; ctx.font = '12px sans-serif';
+        ctx.fillText('失物', W - 150, H - 16);
+        ctx.fillText('招领', W - 70, H - 16);
+    }
+
+    function drawCategoryChart() {
+        const canvas = document.getElementById('chartCanvas');
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        const W = canvas.width, H = canvas.height;
+        ctx.fillStyle = '#F4EDDF';
+        ctx.fillRect(0, 0, W, H);
+
+        const counts = {};
+        (window.itemsData || []).filter(i => i.status === 'active').forEach((i) => {
+            const key = i.category || '未分类';
+            counts[key] = (counts[key] || 0) + 1;
+        });
+        const data = Object.keys(counts).map(k => [k, counts[k]]).sort((a, b) => b[1] - a[1]);
+        if (!data.length) {
+            ctx.fillStyle = '#6B6A63'; ctx.font = '16px sans-serif';
+            ctx.fillText('暂无在架启事数据', W / 2 - 60, H / 2);
+            return;
+        }
+        const mode = document.getElementById('chartType').value;
+        ctx.font = '13px sans-serif';
+
+        if (mode === 'pie') {
+            const cx = W * .36, cy = H / 2, r = Math.min(150, H * .38);
+            const total = data.reduce((s, d) => s + d[1], 0);
+            let angle = -Math.PI / 2;
+            data.forEach(([name, value], idx) => {
+                const next = angle + (value / total) * Math.PI * 2;
+                ctx.beginPath(); ctx.moveTo(cx, cy);
+                ctx.arc(cx, cy, r, angle, next); ctx.closePath();
+                ctx.fillStyle = ADMIN_COLORS[idx % ADMIN_COLORS.length]; ctx.fill();
+                ctx.strokeStyle = '#F4EDDF'; ctx.lineWidth = 2; ctx.stroke();
+                angle = next;
+            });
+            data.forEach(([name, value], idx) => {
+                const y = 58 + idx * 30;
+                ctx.fillStyle = ADMIN_COLORS[idx % ADMIN_COLORS.length];
+                ctx.fillRect(W * .68, y - 12, 14, 14);
+                ctx.fillStyle = '#20304F';
+                ctx.fillText(name + '  ' + value + ' 条 (' + Math.round(value / total * 100) + '%)', W * .68 + 22, y);
+            });
+        } else {
+            const max = Math.max.apply(null, data.map(d => d[1]));
+            const rowH = Math.min(44, (H - 70) / data.length);
+            const top = 46;
+            data.forEach(([name, value], idx) => {
+                const y = top + idx * rowH;
+                ctx.fillStyle = '#20304F'; ctx.font = '13px sans-serif';
+                ctx.fillText(name, 16, y + 17);
+                ctx.fillStyle = 'rgba(32,48,79,.08)';
+                ctx.fillRect(110, y + 4, W - 170, 20);
+                ctx.fillStyle = ADMIN_COLORS[idx % ADMIN_COLORS.length];
+                ctx.fillRect(110, y + 4, (value / max) * (W - 170), 20);
+                ctx.fillStyle = '#20304F';
+                ctx.fillText(String(value), W - 48, y + 19);
+            });
+        }
+        ctx.fillStyle = 'rgba(32,48,79,.75)'; ctx.font = 'bold 13px sans-serif';
+        ctx.fillText('在架启事按分类统计 · 共 ' + data.reduce((s, d) => s + d[1], 0) + ' 条', 16, 24);
+    }
+
+    function dateStamp() {
+        const d = new Date();
+        return '' + d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0');
+    }
+
+    function downloadCanvas(canvas, filename) {
+        if (!canvas) return;
+        const a = document.createElement('a');
+        a.download = filename;
+        a.href = canvas.toDataURL('image/png');
+        document.body.appendChild(a); a.click(); a.remove();
+    }
+
+    function exportHeatmapPNG() { downloadCanvas(document.getElementById('heatmapCanvas'), '寻物智联-失物热力图-' + dateStamp() + '.png'); }
+    function exportChartPNG() { downloadCanvas(document.getElementById('chartCanvas'), '寻物智联-种类分布图-' + dateStamp() + '.png'); }
+
+    function exportStatsCSV() {
+        const header = ['ID', '类型', '标题', '分类', '颜色', '地点', '日期', '状态', '发布者', '经度', '纬度'];
+        const rows = (window.itemsData || []).map(i => [
+            i.id, i.type === 'lost' ? '寻物' : '招领', i.title, i.category, i.color,
+            i.location, i.date, i.status, i.publisher,
+            i.lng == null ? '' : i.lng, i.lat == null ? '' : i.lat
+        ]);
+        const csv = '\ufeff' + [header].concat(rows).map(row =>
+            row.map(v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"').join(',')
+        ).join('\r\n');
+        const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+        const a = document.createElement('a');
+        a.href = url; a.download = '寻物智联-启事明细-' + dateStamp() + '.csv';
+        document.body.appendChild(a); a.click(); a.remove();
+        URL.revokeObjectURL(url);
     }
 
     // 按筛选/排序渲染物品表

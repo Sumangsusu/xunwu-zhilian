@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>地图匹配 - 寻物智联</title>
+    <script src="js/app-base.js"></script>
+    <script src="vendor/tailwind.js"></script>
+    <link href="vendor/font-awesome.min.css" rel="stylesheet">
+    <link href="css/style.css" rel="stylesheet">
+    <script>
+        tailwind.config = { theme: { extend: { colors: {
+            primary: '#3B82F6', secondary: '#10B981', accent: '#F59E0B', dark: '#1E293B'
+        }, fontFamily: { sans: ['Inter', 'Noto Sans SC', 'system-ui', 'sans-serif'] } } } };
+    </script>
+    <style>
+        .paper-card { background:#FFFDF7; border:2px solid #20304F; border-radius:16px; box-shadow:4px 4px 0 #20304F; }
+        .paper-input { background:#fff; border:2px solid #20304F; border-radius:10px; }
+        .campus-map-wrap { height:460px; background:#F4EDDF; }
+    </style>
+</head>
+<body class="bg-[#F4EDDF] min-h-screen font-sans text-[#20304F]">
+    <header class="bg-[#20304F] text-white py-4">
+        <div class="max-w-6xl mx-auto px-4 flex items-center justify-between">
+            <a href="index.html" class="text-sm hover:text-amber-300"><i class="fa fa-arrow-left mr-1"></i>返回首页</a>
+            <div class="font-bold text-lg"><i class="fa fa-map-marked-alt mr-2 text-amber-300"></i>按地图找失物</div>
+            <a href="found.html" class="text-sm hover:text-amber-300">招领列表<i class="fa fa-arrow-right ml-1"></i></a>
+        </div>
+    </header>
+
+    <main class="max-w-6xl mx-auto px-4 py-8">
+        <div class="paper-card p-6 mb-6">
+            <div class="flex flex-wrap items-end gap-3">
+                <div class="flex-1 min-w-[220px]">
+                    <label class="block text-xs text-slate-500 mb-1">关键词（选填，可与地图选点叠加）</label>
+                    <input id="kw" class="paper-input w-full px-3 py-2.5 text-sm" placeholder="如：一教、图书馆、雨伞、钱包">
+                </div>
+                <div>
+                    <label class="block text-xs text-slate-500 mb-1">搜索半径</label>
+                    <select id="radius" class="paper-input px-3 py-2.5 text-sm">
+                        <option value="300">300 米</option>
+                        <option value="500">500 米</option>
+                        <option value="1000" selected>1 公里</option>
+                        <option value="2000">2 公里</option>
+                        <option value="5000">5 公里</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs text-slate-500 mb-1">启事类型</label>
+                    <select id="type" class="paper-input px-3 py-2.5 text-sm">
+                        <option value="">全部</option>
+                        <option value="lost">寻物启事</option>
+                        <option value="found">招领启事</option>
+                    </select>
+                </div>
+                <button onclick="searchNearby()" class="px-5 py-2.5 rounded-xl bg-[#20304F] text-white font-semibold text-sm hover:bg-[#2E7D6B] transition-colors">
+                    <i class="fa fa-search mr-1"></i>立即匹配
+                </button>
+                <button onclick="resetAll()" class="px-4 py-2.5 rounded-xl border-2 border-[#20304F] bg-white text-sm font-medium hover:bg-amber-300 transition-colors">重置</button>
+            </div>
+            <p class="text-xs text-slate-500 mt-3">
+                <i class="fa fa-info-circle mr-1"></i>关键词与地图选点<b>至少填一个</b>，两者可任意先后组合：先选点再输关键词可缩小范围，反过来也一样。点地图即可重新选点。
+            </p>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
+            <div class="lg:col-span-3">
+                <div id="mapWrap" class="campus-map-wrap rounded-2xl border-2 border-[#20304F] overflow-hidden"></div>
+                <p id="pickInfo" class="text-xs text-slate-500 mt-2">尚未选点，当前仅按关键词匹配。</p>
+            </div>
+            <div class="lg:col-span-2">
+                <div class="paper-card p-5 h-full">
+                    <h2 class="font-bold text-lg mb-1"><i class="fa fa-list mr-2 text-amber-500"></i>匹配结果</h2>
+                    <p id="status" class="text-sm text-slate-500 mb-4">输入关键词或点击地图开始匹配。</p>
+                    <div id="results" class="max-h-[520px] overflow-y-auto pr-1"></div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script src="js/campus-map.js"></script>
+    <script>
+        let picked = null;
+        let debounceTimer = null;
+        let mapInited = false;
+        const $ = (id) => document.getElementById(id);
+
+        function resetAll() {
+            $('kw').value = '';
+            $('radius').value = '1000';
+            $('type').value = '';
+            picked = null;
+            $('pickInfo').textContent = '尚未选点，当前仅按关键词匹配。';
+            $('status').textContent = '输入关键词或点击地图开始匹配。';
+            $('results').innerHTML = '';
+        }
+
+        function resultCard(item) {
+            const isLost = item.type === 'lost';
+            const color = isLost ? '#C0392B' : '#2E7D6B';
+            const distance = item.distance == null ? '—' : item.distance + '<span class="text-xs"> m</span>';
+            return `
+            <article class="border-2 border-[#20304F] rounded-xl bg-white p-3 mb-3 shadow-[2px_2px_0_#20304F]">
+                <div class="flex items-start justify-between gap-2">
+                    <div class="min-w-0">
+                        <div class="flex flex-wrap items-center gap-2 mb-1">
+                            <span class="px-1.5 py-0.5 rounded text-[11px] text-white" style="background:${color}">${isLost ? '寻物' : '招领'}</span>
+                            <h3 class="font-bold text-sm truncate">${esc(item.title)}</h3>
+                        </div>
+                        <div class="text-xs text-slate-500">${esc(item.location)} · ${esc(item.date)}</div>
+                        <div class="text-xs text-slate-500 mt-1">分类：${esc(item.category)}${item.color ? ' · ' + esc(item.color) : ''}</div>
+                        <div class="text-xs mt-1 truncate" style="color:${color}">${esc(item.contact || '—')}${item.hasQuiz ? '（需答题解锁）' : ''}</div>
+                    </div>
+                    <div class="text-right flex-shrink-0">
+                        <div class="font-bold text-base" style="color:${color}">${distance}</div>
+                        <div class="text-[10px] text-slate-400">距选点</div>
+                    </div>
+                </div>
+            </article>`;
+        }
+
+        async function searchNearby() {
+            const params = new URLSearchParams();
+            const keyword = $('kw').value.trim();
+            if (keyword) params.set('q', keyword);
+            if (picked) {
+                if (picked.lng != null && picked.lat != null) {
+                    params.set('lng', picked.lng);
+                    params.set('lat', picked.lat);
+                } else if (picked.mapX != null && picked.mapY != null) {
+                    params.set('mapX', picked.mapX);
+                    params.set('mapY', picked.mapY);
+                }
+                params.set('radius', $('radius').value);
+            }
+            const type = $('type').value;
+            if (type) params.set('type', type);
+
+            if (!keyword && !picked) {
+                $('status').textContent = '请至少输入关键词，或在地图上选一个点。';
+                $('status').className = 'text-sm text-amber-700 mb-4';
+                $('results').innerHTML = '';
+                return;
+            }
+            $('status').textContent = '正在匹配…';
+            $('status').className = 'text-sm text-slate-500 mb-4';
+            try {
+                const resp = await fetch(apiUrl('/api/items?' + params.toString()), { credentials: 'same-origin' });
+                const data = await resp.json();
+                const items = Array.isArray(data.items) ? data.items : [];
+                const point = data.filters && data.filters.point;
+                $('status').textContent = '找到 ' + items.length + ' 条' +
+                    (point ? ' · 半径 ' + point.radius + ' 米' + (point.source === 'svg-approx' ? '（示意图估算）' : '') : '') +
+                    (keyword ? ' · 关键词「' + keyword + '」' : '');
+                $('status').className = 'text-sm text-emerald-700 mb-4';
+                $('results').innerHTML = items.length
+                    ? items.map(resultCard).join('')
+                    : '<div class="text-sm text-slate-500 text-center py-10">没有符合条件的启事。<br>试试扩大半径、减少关键词，或换个位置选点。</div>';
+            } catch (err) {
+                $('status').textContent = '匹配失败，请稍后重试';
+                $('status').className = 'text-sm text-red-600 mb-4';
+            }
+        }
+
+        function initMap() {
+            if (mapInited) return;
+            mapInited = true;
+            if (!window.CampusMapGL) {
+                $('pickInfo').textContent = '地图组件加载失败，仍可用关键词匹配。';
+                return;
+            }
+            window.CampusMapGL.mount($('mapWrap'), {
+                pick: true,
+                onPick: function (coords) {
+                    picked = coords;
+                    const place = coords.zone || coords.address || '';
+                    $('pickInfo').textContent = '已选点：' + (place || (coords.lng != null
+                        ? coords.lng.toFixed(4) + ', ' + coords.lat.toFixed(4)
+                        : '示意图坐标 ' + coords.mapX + ', ' + coords.mapY)) + ' · 正在按半径匹配…';
+                    searchNearby();
+                }
+            });
+        }
+
+        $('kw').addEventListener('input', function () {
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(searchNearby, 350);
+        });
+        $('radius').addEventListener('change', searchNearby);
+        $('type').addEventListener('change', searchNearby);
+        window.addEventListener('DOMContentLoaded', initMap);
+        if (document.readyState !== 'loading') initMap();
+    </script>
+</body>
+</html>

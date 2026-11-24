@@ -278,6 +278,15 @@ profile.html
                                 <button type="button" onclick="addQuizQuestion()" class="text-xs px-3 py-1.5 rounded-lg bg-primary text-white hover:bg-primary/90 transition-colors"><i class="fa fa-plus mr-1"></i>添加问题</button>
                             </div>
                             <p class="text-xs text-slate-500 mb-3">设置后，您的联系方式将部分隐藏，认领者答对所有问题才能查看完整联系方式。</p>
+                            <div class="mb-3 flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                                <span>认领者试错次数：</span>
+                                <select id="quizAttempts" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs focus:outline-none focus:border-primary">
+                                    <option value="0">按题型自动（选择题 1 次 / 含填空 3 次）</option>
+                                    <option value="2">2 次（需含填空题）</option>
+                                    <option value="3">3 次（需含填空题）</option>
+                                </select>
+                                <span class="text-slate-400">次数按认领者账号持久化，刷新页面或重新登录都不会重置。</span>
+                            </div>
                             <div id="quizList" class="space-y-4"></div>
                         </div>
 
@@ -358,31 +367,122 @@ profile.html
             renderPublishMarker();
         }
 
-        // ==================== 防冒领问答编辑 ====================
-        function addQuizQuestion() {
+        // ==================== 防冒领问答编辑（选择 / 判断 / 填空） ====================
+        const QUIZ_GENERIC = new Set(['是','否','对','错','有','无','没有','不确定','不知道','不清楚','其他','别的','一个','一些','某个','abc','test','123','111','000']);
+        const QUIZ_AMBIGUOUS = /[\/、,，;；|]|或者|或是|以及|或|和|跟|与|等等|之类|大概|可能|左右/;
+
+        function quizFold(value) {
+            return String(value == null ? '' : value).trim().toLowerCase()
+                .replace(/[\s\u3000]/g, '')
+                .replace(/[（）()【】\[\]《》<>"'“”‘’：:。．.,，!！?？~～—\-_·]/g, '');
+        }
+
+        // 填空题答案唯一性鉴定（与后端 quiz.js 规则一致，前端即时提示）
+        function reviewBlankLocal(question, answer, accept) {
+            const issues = [];
+            const folded = quizFold(answer);
+            const extras = (accept || []).map(quizFold).filter(Boolean);
+            if (!String(answer || '').trim()) issues.push('答案不能为空');
+            if (folded && folded.length < 2) issues.push('答案太短，至少 2 个字符');
+            if (/^\d+$/.test(folded) && folded.length < 3) issues.push('纯数字答案至少 3 位');
+            if (QUIZ_GENERIC.has(folded)) issues.push('答案过于笼统，无法证明失主身份');
+            if (QUIZ_AMBIGUOUS.test(String(answer || '')) && extras.length === 0) issues.push('答案有歧义，请写唯一答案或补充同义写法');
+            if (question) {
+                if (quizFold(question).length < 6) issues.push('题干过短，请写清限定条件');
+                if (!/[?？]|多少|什么|哪|谁|几|颜色|型号|品牌|号码|尾号/.test(question)) issues.push('题干缺少明确问法');
+            }
+            return issues;
+        }
+
+        function renderQuizReview(div) {
+            const box = div.querySelector('.quiz-review');
+            if (!box) return;
+            const type = div.dataset.type || 'choice';
+            if (type !== 'blank') {
+                box.innerHTML = '<span class="text-slate-400">此题只允许作答 1 次，请确认正确答案。</span>';
+                return;
+            }
+            const q = div.querySelector('.quiz-q').value.trim();
+            const answer = div.querySelector('.quiz-answer') ? div.querySelector('.quiz-answer').value.trim() : '';
+            const accept = div.querySelector('.quiz-accept') ? div.querySelector('.quiz-accept').value.split(/[,，、]/).map(s => s.trim()).filter(Boolean) : [];
+            if (!q && !answer) { box.innerHTML = '<span class="text-slate-400">填写题干与答案后，这里会实时检查答案是否唯一明确。</span>'; return; }
+            const issues = reviewBlankLocal(q, answer, accept);
+            box.innerHTML = issues.length
+                ? '<span class="text-red-500"><i class="fa fa-exclamation-circle mr-1"></i>' + issues.join('；') + '</span>'
+                : '<span class="text-emerald-600"><i class="fa fa-check-circle mr-1"></i>答案唯一明确，可以发布（认领者最多可试 3 次）</span>';
+        }
+
+        function onQuizTypeChange(select) {
+            const div = select.closest('.quiz-item');
+            div.dataset.type = select.value;
+            renderQuizBody(div);
+            renumberQuiz();
+            renderQuizReview(div);
+        }
+
+        function renderQuizBody(div) {
+            const type = div.dataset.type || 'choice';
+            const body = div.querySelector('.quiz-body');
+            const idx = Array.from(div.parentElement.children).indexOf(div);
+            if (type === 'blank') {
+                body.innerHTML = `
+                    <input type="text" class="quiz-answer w-full px-3 py-2 bg-white border border-blue-200 rounded-lg text-sm" placeholder="标准答案（唯一明确，如：银行卡）">
+                    <input type="text" class="quiz-accept mt-2 w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm" placeholder="同义写法（选填，用逗号分隔，如：银行卡若干, 银行卡和卡）">
+                    <p class="text-[11px] text-slate-400 mt-2">发布前会鉴定答案是否唯一明确；模糊答案无法发布。</p>`;
+            } else if (type === 'boolean') {
+                body.innerHTML = `
+                    <div class="space-y-2">
+                        ${['是', '否'].map((label, i) => `
+                        <label class="flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-white cursor-pointer hover:border-primary text-sm text-slate-700">
+                            <input type="radio" name="quiz_ans_${idx}" value="${i}" class="accent-primary"> <span>${label}</span>
+                        </label>`).join('')}
+                    </div>
+                    <p class="text-[11px] text-slate-400 mt-2">判断题固定「是 / 否」两个选项，只允许作答 1 次。</p>`;
+            } else {
+                body.innerHTML = `
+                    <div class="quiz-opts space-y-2">
+                        ${[0, 1, 2, 3].map(i => `
+                        <div class="flex items-center gap-2">
+                            <input type="radio" name="quiz_ans_${idx}" value="${i}" class="accent-primary" title="选为正确答案">
+                            <input type="text" class="quiz-opt flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm" placeholder="选项 ${i + 1}${i >= 2 ? '（可留空）' : ''}">
+                        </div>`).join('')}
+                    </div>
+                    <p class="text-[11px] text-slate-400 mt-2">至少 2 个选项、最多 4 个，勾选正确答案；只允许作答 1 次。</p>`;
+            }
+            body.querySelectorAll('input').forEach(input => {
+                input.addEventListener('input', () => renderQuizReview(div));
+                if (input.type === 'radio') input.addEventListener('change', () => renderQuizReview(div));
+            });
+        }
+
+        function addQuizQuestion(type) {
             const list = document.getElementById('quizList');
             if (!list) return;
             if (list.children.length >= 5) { alert('最多添加 5 个问题'); return; }
-            const idx = list.children.length;
             const div = document.createElement('div');
             div.className = 'quiz-item p-4 bg-white border border-slate-200 rounded-xl';
+            div.dataset.type = type || 'choice';
             div.innerHTML = `
-                <div class="flex justify-between items-center mb-2">
-                    <span class="text-xs font-medium text-slate-500">问题 ${idx + 1}</span>
-                    <button type="button" onclick="this.closest('.quiz-item').remove(); renumberQuiz();" class="text-xs text-red-400 hover:text-red-600"><i class="fa fa-trash mr-1"></i>删除</button>
+                <div class="flex justify-between items-center mb-2 gap-2">
+                    <span class="text-xs font-medium text-slate-500"></span>
+                    <div class="flex items-center gap-2">
+                        <select class="quiz-type text-xs px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-primary" onchange="onQuizTypeChange(this)">
+                            <option value="choice">选择题</option>
+                            <option value="boolean">判断题</option>
+                            <option value="blank">填空题</option>
+                        </select>
+                        <button type="button" onclick="this.closest('.quiz-item').remove(); renumberQuiz();" class="text-xs text-red-400 hover:text-red-600"><i class="fa fa-trash mr-1"></i>删除</button>
+                    </div>
                 </div>
                 <input type="text" class="quiz-q w-full px-3 py-2 mb-3 bg-slate-50 border border-slate-200 rounded-lg text-sm" placeholder="只有真正的失主才知道答案的问题，如：包内有什么物品？">
-                <div class="quiz-opts space-y-2">
-                    ${[0, 1, 2, 3].map(i => `
-                    <div class="flex items-center gap-2">
-                        <input type="radio" name="quiz_ans_${idx}" value="${i}" class="accent-primary" title="选为正确答案">
-                        <input type="text" class="quiz-opt flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm" placeholder="选项 ${i + 1}${i >= 2 ? '（可留空）' : ''}">
-                    </div>`).join('')}
-                </div>
-                <p class="text-[11px] text-slate-400 mt-2">请勾选正确答案左侧的单选按钮；至少填写 2 个选项，最多 4 个。</p>
-            `;
+                <div class="quiz-body"></div>
+                <div class="quiz-review mt-2"></div>`;
             list.appendChild(div);
+            div.querySelector('.quiz-type').value = div.dataset.type;
+            div.querySelector('.quiz-q').addEventListener('input', () => renderQuizReview(div));
+            renderQuizBody(div);
             renumberQuiz();
+            renderQuizReview(div);
         }
 
         function renumberQuiz() {
@@ -390,9 +490,8 @@ profile.html
             if (!list) return;
             Array.from(list.children).forEach((div, idx) => {
                 div.querySelector('span').textContent = '问题 ' + (idx + 1);
-                div.querySelectorAll('input[type="radio"]').forEach((r, oi) => {
+                div.querySelectorAll('input[type="radio"]').forEach((r) => {
                     r.name = 'quiz_ans_' + idx;
-                    r.value = oi;
                 });
             });
         }
@@ -402,17 +501,33 @@ profile.html
             if (!list || list.children.length === 0) return [];
             const quiz = [];
             for (const div of list.children) {
+                const type = div.dataset.type || 'choice';
                 const q = div.querySelector('.quiz-q').value.trim();
-                const opts = Array.from(div.querySelectorAll('.quiz-opt')).map(o => o.value.trim());
-                const filled = opts.filter(Boolean);
-                const checked = div.querySelector('input[type="radio"]:checked');
                 if (!q) { alert('请填写问题题干'); return null; }
-                if (filled.length < 2) { alert('每题至少填写 2 个选项'); return null; }
-                if (!checked) { alert('请为每道题勾选正确答案'); return null; }
-                // 答案下标需映射到过滤空选项后的数组
-                const rawIdx = Number(checked.value);
-                if (!opts[rawIdx]) { alert('正确答案不能是空白选项'); return null; }
-                quiz.push({ q, options: filled, answer: filled.indexOf(opts[rawIdx]) });
+                if (type === 'blank') {
+                    const answer = div.querySelector('.quiz-answer').value.trim();
+                    const accept = div.querySelector('.quiz-accept').value.split(/[,，、]/).map(s => s.trim()).filter(Boolean);
+                    const issues = reviewBlankLocal(q, answer, accept);
+                    if (issues.length) {
+                        alert('填空题未通过唯一性鉴定：' + issues[0] + '\n请修改后再发布。');
+                        div.querySelector(issues[0].includes('答案') ? '.quiz-answer' : '.quiz-q').focus();
+                        return null;
+                    }
+                    quiz.push({ type, q, answer, accept });
+                } else if (type === 'boolean') {
+                    const checked = div.querySelector('input[type="radio"]:checked');
+                    if (!checked) { alert('请为判断题选择「是」或「否」'); return null; }
+                    quiz.push({ type, q, answer: Number(checked.value) });
+                } else {
+                    const opts = Array.from(div.querySelectorAll('.quiz-opt')).map(o => o.value.trim());
+                    const filled = opts.filter(Boolean);
+                    const checked = div.querySelector('input[type="radio"]:checked');
+                    if (filled.length < 2) { alert('每题至少填写 2 个选项'); return null; }
+                    if (!checked) { alert('请为每道题勾选正确答案'); return null; }
+                    const rawIdx = Number(checked.value);
+                    if (!opts[rawIdx]) { alert('正确答案不能是空白选项'); return null; }
+                    quiz.push({ type, q, options: filled, answer: filled.indexOf(opts[rawIdx]) });
+                }
             }
             return quiz;
         }
@@ -618,6 +733,7 @@ profile.html
                     const quiz = collectQuiz();
                     if (quiz === null) return; // 校验失败
                     newItem.quiz = quiz;
+                    newItem.quizAttempts = Number(document.getElementById('quizAttempts').value) || 0;
                 }
 
                 try {

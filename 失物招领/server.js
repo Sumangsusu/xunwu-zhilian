@@ -7,9 +7,10 @@ const helmet = require('helmet');
 const { rateLimit } = require('express-rate-limit');
 const config = require('./config');
 if (config.casEnabled) throw new Error('当前制品未接入校方 CAS，请先设置 CAS_ENABLED=false');
-const { db, mapUser, mapItem, mapFeedback, publicItem } = require('./db');
+const { db, mapUser, mapItem, mapFeedback, publicItem, getQuizState, bumpQuizAttempt } = require('./db');
+const quizRules = require('./quiz');
 const { setSession, clearSession, sessionUser, isLegacySeed } = require('./session');
-const { coordinates, validPair } = require('./coordinates');
+const { coordinates, validPair, approxGeo } = require('./coordinates');
 const { readImage, saveImage } = require('./images');
 const { buildMapConfig, mapCspSources } = require('./map-config');
 const ocr = require('./ocr');
@@ -349,11 +350,22 @@ app.get('/api/items/stats', (_req, res) => {
   return res.json({ success: true, stats: { total, active, found, recovered, claimed, rate } });
 });
 
+// 两点间球面距离（米），用于地图选点半径匹配
+function haversineMeters(lng1, lat1, lng2, lat2) {
+  const rad = Math.PI / 180;
+  const dLat = (lat2 - lat1) * rad;
+  const dLng = (lng2 - lng1) * rad;
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(dLng / 2) ** 2;
+  return 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 // 物品列表，支持 ?type=lost|found 与 ?publisher=用户名（公开列表只返回在架 active）
 // ?q=关键词：走 locationAlias.matchItem 做地点别名/关键词匹配（"一教"能找到"信息学部一教"）。
-//   先在完整字段上匹配，再经 publicItem 脱敏返回，联系方式/防冒领问答不参与匹配也不外泄。
+// ?lng=&lat=&radius= 地图选点半径匹配，与关键词可任意组合；两者至少提供其一。
+//   关键词与半径是「与」关系，可先选点再输入关键词收窄，也可反过来；匹配后经 publicItem 脱敏。
 app.get('/api/items', (req, res) => {
-  const { type, publisher, q } = req.query;
+  const { type, publisher, q, lng, lat, radius, mapX, mapY } = req.query;
   let sql = "SELECT * FROM items WHERE status = 'active'";
   const params = [];
   if (type === 'lost' || type === 'found') {
@@ -367,9 +379,49 @@ app.get('/api/items', (req, res) => {
   sql += ' ORDER BY id DESC';
   const rows = db.prepare(sql).all(...params);
   let items = rows.map(mapItem);
+
   const keyword = typeof q === 'string' ? q.trim() : '';
+  const pLng = Number(lng), pLat = Number(lat);
+  const hasGeo = lng !== undefined && lat !== undefined &&
+    Number.isFinite(pLng) && Number.isFinite(pLat) && validPair(pLng, pLat, -180, 180, -90, 90);
+  const sX = Number(mapX), sY = Number(mapY);
+  const hasSvg = !hasGeo && mapX !== undefined && mapY !== undefined && validPair(sX, sY, 0, 1000, 0, 700);
+  // 自绘 SVG 选点先按标定表折算成 GCJ-02 圆心，无 key 的降级图同样能按半径匹配
+  const center = hasGeo ? { lng: pLng, lat: pLat }
+    : hasSvg ? (approxGeo(sX, sY) || coordinates({ mapX: sX, mapY: sY })) : null;
+  const hasCenter = Boolean(center && center.lng != null && center.lat != null);
+  if (!keyword && !hasCenter) {
+    return res.json({ success: true, items: [], hint: '请至少输入关键词或在地图上选点' });
+  }
+
   if (keyword) items = items.filter((item) => locationAlias.matchItem(keyword, item));
-  return res.json({ success: true, items: items.map(publicItem) });
+
+  let range = null;
+  if (hasCenter) {
+    range = Math.min(Math.max(Number(radius) > 0 ? Number(radius) : 1000, 50), 5000);
+    items = items
+      .map((item) => {
+        const point = coordinates(item);
+        return {
+          ...item,
+          distance: point.lng == null ? null : Math.round(haversineMeters(center.lng, center.lat, point.lng, point.lat))
+        };
+      })
+      .filter((item) => item.distance != null && item.distance <= range)
+      .sort((a, b) => a.distance - b.distance);
+  }
+
+  return res.json({
+    success: true,
+    items: items.map(publicItem),
+    filters: {
+      keyword: keyword || null,
+      point: hasCenter ? {
+        lng: center.lng, lat: center.lat, radius: range,
+        source: hasGeo ? 'geo' : 'svg-approx'
+      } : null
+    }
+  });
 });
 
 // 我发布的全部启事（含已撤销，需登录；供个人中心管理/撤销/恢复）
@@ -468,10 +520,19 @@ app.get('/api/items/:id', tryAuth, (req, res) => {
   if (isOwner || isAdmin) {
     return res.json({ success: true, item });
   }
-  return res.json({ success: true, item: publicItem(item) });
+  const view = publicItem(item);
+  if (req.user && view.hasQuiz) {
+    const state = getQuizState(item.id, req.user.username);
+    view.quizState = state;
+    if (state.unlocked) {
+      view.contact = item.contact;
+      view.contactMasked = false;
+    }
+  }
+  return res.json({ success: true, item: view });
 });
 
-// 防冒领问答验证：全部答对才返回完整联系方式
+// 防冒领问答验证：按「用户 + 启事」计次，答对即解锁；次数耗尽不再接受尝试
 app.post('/api/items/:id/verify', authRequired, verifyLimit, (req, res) => {
   const row = db.prepare('SELECT * FROM items WHERE id = ?').get(req.params.id);
   if (!row) {
@@ -483,13 +544,36 @@ app.post('/api/items/:id/verify', authRequired, verifyLimit, (req, res) => {
   if (!quiz.length) {
     return res.json({ success: true, correct: true, contact: item.contact });
   }
-  const answers = Array.isArray((req.body || {}).answers) ? req.body.answers : [];
-  const correct = quiz.length === answers.length &&
-    quiz.every((q, i) => Number.isInteger(answers[i]) && answers[i] === q.answer);
-  if (!correct) {
-    return res.json({ success: true, correct: false, message: '答案不完全正确，请再仔细想想' });
+  // 发布者本人与管理员不需要接受自己的问答
+  if (req.user.username === item.publisher || req.user.role === 'admin') {
+    return res.json({ success: true, correct: true, contact: item.contact, bypass: true });
   }
-  return res.json({ success: true, correct: true, contact: item.contact });
+
+  const max = Number(item.quizAttempts) > 0 ? Number(item.quizAttempts) : quizRules.maxAttempts(quiz);
+  let state = getQuizState(item.id, req.user.username);
+  if (state.unlocked) {
+    return res.json({ success: true, correct: true, contact: item.contact, remaining: Math.max(0, max - state.attempts) });
+  }
+  if (state.attempts >= max) {
+    return res.json({
+      success: true, correct: false, locked: true, remaining: 0,
+      message: '答题次数已用完，请通过布告上的其他方式联系发布者'
+    });
+  }
+
+  const answers = Array.isArray((req.body || {}).answers) ? req.body.answers : [];
+  const correct = quizRules.answersCorrect(quiz, answers);
+  state = bumpQuizAttempt(item.id, req.user.username, correct);
+  const remaining = Math.max(0, max - state.attempts);
+  if (correct) {
+    return res.json({ success: true, correct: true, contact: item.contact, remaining });
+  }
+  return res.json({
+    success: true, correct: false, remaining, locked: remaining === 0,
+    message: remaining === 0
+      ? '答题次数已用完，请通过布告上的其他方式联系发布者'
+      : `答案不完全正确，还可以再试 ${remaining} 次`
+  });
 });
 
 // 发布物品（需登录，发布者以令牌为准）
@@ -506,26 +590,20 @@ app.post('/api/items', authRequired, publishLimit, (req, res) => {
     return res.status(400).json({ success: false, message: '请填写所有必填项' });
   }
 
-  // 防冒领问答校验（选填）：每题需有题干、2-4 个选项及正确选项，最多 5 题
+  // 防冒领问答校验（选填）：选择题 / 判断题 / 填空题，填空题须通过答案唯一性鉴定
   if ([color, reward].some((v) => v != null && typeof v !== 'string')) {
     return res.status(400).json({ success: false, message: '颜色或酬谢字段格式错误' });
   }
-  const cleanQuiz = [];
-  if (Array.isArray(quiz) && quiz.length > 0) {
-    if (quiz.length > 5) {
-      return res.status(400).json({ success: false, message: '防冒领问题最多 5 题' });
-    }
-    for (const q of quiz) {
-      if (!q || typeof q !== 'object') return res.status(400).json({ success: false, message: '防冒领问题格式错误' });
-      const text = String(q.q || '').trim();
-      const options = (Array.isArray(q.options) ? q.options : []).map((o) => String(o).trim()).filter(Boolean);
-      const answer = Number(q.answer);
-      if (!text || options.length < 2 || options.length > 4 || !Number.isInteger(answer) || answer < 0 || answer >= options.length) {
-        return res.status(400).json({ success: false, message: '防冒领问题格式不正确：每题需题干、2-4 个选项并选定正确答案' });
-      }
-      cleanQuiz.push({ q: text, options, answer });
-    }
+  const normalized = quizRules.normalizeQuiz(quiz, req.body && req.body.quizAttempts);
+  if (!normalized.ok) {
+    return res.status(400).json({
+      success: false,
+      message: normalized.issues[0] || '防冒领问答格式不正确',
+      issues: normalized.issues
+    });
   }
+  const cleanQuiz = normalized.quiz;
+  const cleanAttempts = normalized.attempts;
 
   // 旧版发布表单以字符串提交 SVG 坐标。
   const numericSvg = (value) => typeof value === 'string' && value.trim() ? Number(value) : value;
@@ -547,12 +625,13 @@ app.post('/api/items', authRequired, publishLimit, (req, res) => {
   let info;
   try {
     info = db.prepare(
-      `INSERT INTO items (type, title, category, color, location, date, image, description, contact, reward, features, publisher, map_x, map_y, lng, lat, quiz, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO items (type, title, category, color, location, date, image, description, contact, reward, features, publisher, map_x, map_y, lng, lat, quiz, quiz_attempts, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       type, title, category, color || '未知', location, date, upload.url, description, contact, reward || '',
       JSON.stringify(Array.isArray(features) ? features.filter((v) => typeof v === 'string') : []),
-      req.user.username, point.mapX, point.mapY, point.lng, point.lat, JSON.stringify(cleanQuiz), Date.now()
+      req.user.username, point.mapX, point.mapY, point.lng, point.lat,
+      JSON.stringify(cleanQuiz), cleanAttempts, Date.now()
     );
   } catch (err) {
     if (upload.filename) fs.rmSync(upload.filename, { force: true });

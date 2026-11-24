@@ -65,6 +65,16 @@ CREATE TABLE IF NOT EXISTS feedback (
   reply       TEXT DEFAULT '',
   created_at  INTEGER NOT NULL
 );
+
+-- 防冒领答题记录：按「启事 + 用户」持久化试错次数，刷新页面 / 换设备无法重置。
+CREATE TABLE IF NOT EXISTS quiz_attempts (
+  item_id     INTEGER NOT NULL,
+  username    TEXT NOT NULL,
+  attempts    INTEGER NOT NULL DEFAULT 0,
+  unlocked    INTEGER NOT NULL DEFAULT 0,
+  updated_at  INTEGER NOT NULL,
+  PRIMARY KEY (item_id, username)
+);
 `);
 
 // 在写锁内检查列，兼容旧库和并发启动。
@@ -76,6 +86,7 @@ db.transaction(() => {
   const itemColumns = db.pragma('table_info(items)').map((column) => column.name);
   const columns = {
     status: "TEXT NOT NULL DEFAULT 'active'", quiz: "TEXT DEFAULT ''",
+    quiz_attempts: "INTEGER NOT NULL DEFAULT 0",
     map_x: 'REAL', map_y: 'REAL', lng: 'REAL', lat: 'REAL'
   };
   for (const [column, type] of Object.entries(columns)) {
@@ -111,6 +122,7 @@ function mapItem(row) {
     reward: row.reward,
     features: JSON.parse(row.features || '[]'),
     quiz: JSON.parse(row.quiz || '[]'),
+    quizAttempts: Number(row.quiz_attempts || 0),
     publisher: row.publisher,
     status: row.status || 'active',
     mapX: row.map_x == null ? null : Number(row.map_x),
@@ -143,14 +155,47 @@ function maskContact(contact) {
   return chars.slice(0, 2).join('') + '****' + chars.at(-1);
 }
 
-// 公开版问答：只返回题干与选项，不暴露正确选项下标
+// 公开版问答：按题型返回题干与作答所需信息，绝不返回正确答案。
+// 填空题只给一个字数提示（不暴露内容），判断题固定「是 / 否」。
 function publicQuiz(quiz) {
-  return (quiz || []).map((q) => ({ q: q.q, options: q.options }));
+  return (quiz || []).map((q) => {
+    const type = q.type || 'choice';
+    if (type === 'blank') {
+      return { type, q: q.q, hint: String(q.answer || '').length };
+    }
+    if (type === 'boolean') {
+      return { type, q: q.q, options: ['是', '否'] };
+    }
+    return { type: 'choice', q: q.q, options: Array.isArray(q.options) ? q.options : [] };
+  });
+}
+
+// 防冒领答题状态：次数持久化，刷新页面 / 重新登录都无法重置
+function getQuizState(itemId, username) {
+  const row = db.prepare(
+    'SELECT attempts, unlocked FROM quiz_attempts WHERE item_id = ? AND username = ?'
+  ).get(itemId, username);
+  return { attempts: row ? row.attempts : 0, unlocked: row ? Boolean(row.unlocked) : false };
+}
+
+function bumpQuizAttempt(itemId, username, unlocked) {
+  db.prepare(
+    `INSERT INTO quiz_attempts (item_id, username, attempts, unlocked, updated_at)
+     VALUES (?, ?, 1, ?, ?)
+     ON CONFLICT(item_id, username) DO UPDATE SET
+       attempts = quiz_attempts.attempts + 1,
+       unlocked = CASE WHEN excluded.unlocked = 1 THEN 1 ELSE quiz_attempts.unlocked END,
+       updated_at = excluded.updated_at`
+  ).run(itemId, username, unlocked ? 1 : 0, Date.now());
+  return getQuizState(itemId, username);
 }
 
 // 公开视图：设置了防冒领问答的启事，联系方式打码、答案剥离；hasQuiz 标记前端需答题
 function publicItem(item) {
   const quiz = item.quiz || [];
+  const maxAttempts = Number(item.quizAttempts) > 0
+    ? Number(item.quizAttempts)
+    : (quiz.some((q) => q.type === 'blank') ? 3 : 1);
   return {
     ...item,
     // 对外仅提供约百米级经纬度。
@@ -159,7 +204,8 @@ function publicItem(item) {
     contact: maskContact(item.contact),
     contactMasked: Boolean(item.contact),
     hasQuiz: Boolean(quiz.length),
-    quiz: publicQuiz(quiz)
+    quiz: publicQuiz(quiz),
+    quizMaxAttempts: maxAttempts
   };
 }
 
@@ -211,4 +257,7 @@ function seed() {
 
 if (seedDevUser) db.transaction(seed).immediate();
 
-module.exports = { db, mapUser, mapItem, mapFeedback, maskContact, publicItem, publicQuiz };
+module.exports = {
+  db, mapUser, mapItem, mapFeedback, maskContact, publicItem, publicQuiz,
+  getQuizState, bumpQuizAttempt
+};
