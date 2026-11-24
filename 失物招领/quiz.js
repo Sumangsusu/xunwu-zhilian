@@ -138,8 +138,10 @@ function reviewBlank(question, answer, accept) {
 // 判定一次提交是否正确。填空题忽略输入中的多余空格、大小写与标点差异。
 function validateAnswer(question, submitted) {
   if (!question) return false;
-  if (question.type === CHOICE || question.type === BOOLEAN) {
-    return Number(submitted) === question.answer;
+  // 兼容旧数据：早期题目没有 type 字段，但有 options + answer 的是选择题
+  const type = question.type || (Array.isArray(question.options) ? CHOICE : null);
+  if (type === CHOICE || type === BOOLEAN) {
+    return Number(submitted) === Number(question.answer);
   }
   if (question.type === BLANK) {
     const value = fold(submitted);
