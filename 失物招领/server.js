@@ -17,6 +17,7 @@ const ocr = require('./ocr');
 const recognize = require('./recognize');
 const locationAlias = require('./public/js/location-alias');
 const matcher = require('./matcher');
+const points = require('./points');
 
 const app = express();
 app.set('trust proxy', config.trustProxy || false);
@@ -652,9 +653,23 @@ app.post('/api/items', authRequired, publishLimit, (req, res) => {
     console.error('[撮合] 计算失败：', err.message);
   }
 
+  // 发布积分：招领 +5 / 寻物 +2，每人每日计分上限 5 条（超出仍可发布，只是不再计分）
+  let pointsAward = null;
+  try {
+    pointsAward = points.award(db, {
+      username: req.user.username,
+      code: type === 'found' ? 'publish_found' : 'publish_lost',
+      detail: title,
+      ref: 'publish:' + item.id
+    });
+  } catch (err) {
+    console.error('[积分] 发布计分失败：', err.message);
+  }
+
   return res.status(201).json({
     success: true,
     item,
+    points: pointsAward,
     matches: hits.map((hit) => ({
       id: hit.item.id,
       type: hit.item.type,
@@ -684,10 +699,33 @@ app.patch('/api/items/:id/status', authRequired, (req, res) => {
   }
   db.prepare('UPDATE items SET status = ? WHERE id = ?').run(next, target.id);
   const updated = db.prepare('SELECT * FROM items WHERE id = ?').get(target.id);
+
+  // 积分联动：标记已找回/已认领时给发布者加分。
+  // ref=resolve:<id> 保证同一启事只计一次；每日归还计分上限 3 次，防止批量自导自演。
+  // 积分一经发放不自动回收（避免误操作丢分），异常刷分由管理员在后台手动减分。
+  let pointsChange = null;
+  try {
+    if (next === 'resolved' && target.status !== 'resolved') {
+      pointsChange = points.award(db, {
+        username: target.publisher,
+        code: target.type === 'found' ? 'resolve_found' : 'resolve_lost',
+        detail: '启事 #' + target.id + ' ' + target.title,
+        ref: 'resolve:' + target.id
+      });
+    }
+  } catch (err) {
+    console.error('[积分] 结案计分失败：', err.message);
+  }
+
   let message = '启事已恢复上架';
   if (next === 'removed') message = '启事已撤销';
   if (next === 'resolved') message = updated.type === 'lost' ? '已标记为已找回' : '已标记为已认领';
-  return res.json({ success: true, message, item: mapItem(updated) });
+  if (pointsChange && pointsChange.awarded) {
+    message += '，发布者积分 +' + pointsChange.delta;
+  } else if (pointsChange && pointsChange.capped) {
+    message += '（今日归还计分已达上限，本次不额外加分）';
+  }
+  return res.json({ success: true, message, item: mapItem(updated), points: pointsChange });
 });
 
 // ==================== 意见反馈 API ====================
@@ -717,6 +755,41 @@ app.post('/api/feedback', authRequired, (req, res) => {
 app.get('/api/feedback/mine', authRequired, (req, res) => {
   const rows = db.prepare('SELECT * FROM feedback WHERE user_id = ? ORDER BY id DESC').all(req.user.id);
   return res.json({ success: true, feedback: rows.map(mapFeedback) });
+});
+
+// ==================== 积分与等级 API ====================
+
+// 我的积分：总分、等级、排名、最近流水、规则说明（需登录）
+app.get('/api/points/me', authRequired, (req, res) => {
+  return res.json({ success: true, ...points.overview(db, req.user.username) });
+});
+
+// 积分排行榜（公开可看）：默认返回前 20 名，登录用户附带自己的排名
+// ?limit=50 可拉取更多；limit=0 表示不限（最多 200 条，避免一次返回过大）。
+// 公开榜只展示「有积分或有发布」的参与者，避免把从未参与的空账号列出来；
+// 管理员端 /api/admin/points 返回全体用户。
+app.get('/api/points/leaderboard', tryAuth, (req, res) => {
+  const raw = Number((req.query || {}).limit);
+  const limit = Number.isFinite(raw) && raw >= 0 ? Math.min(Math.floor(raw), 200) : 20;
+  const all = points.leaderboard(db);
+  const participants = all.filter((row) => row.points > 0 || row.published > 0);
+  const list = limit === 0 ? participants : participants.slice(0, limit);
+  const me = req.user ? (all.find((row) => row.username === req.user.username) || null) : null;
+  return res.json({
+    success: true,
+    leaderboard: list,
+    me: me ? {
+      rank: me.rank, username: me.username, points: me.points,
+      level: me.level, published: me.published,
+      returned: me.returned, recovered: me.recovered
+    } : null,
+    totalUsers: participants.length,
+    summary: points.boardSummary(db),
+    rules: points.ruleList(),
+    levels: points.LEVELS.map((item) => ({
+      level: item.level, title: item.title, badge: item.badge, min: item.min
+    }))
+  });
 });
 
 // ==================== 管理员后台 API ====================
@@ -749,9 +822,9 @@ app.get('/api/admin/stats', authRequired, requireAdmin, (_req, res) => {
   });
 });
 
-// 用户列表（含注册时间与角色）
+// 用户列表（含注册时间、角色与积分等级）
 app.get('/api/admin/users', authRequired, requireAdmin, (_req, res) => {
-  const rows = db.prepare('SELECT id, username, phone, avatar, signature, role, created_at FROM users ORDER BY id ASC').all();
+  const rows = db.prepare('SELECT id, username, phone, avatar, signature, role, points, created_at FROM users ORDER BY points DESC, created_at ASC').all();
   return res.json({ success: true, users: rows.map(mapUser) });
 });
 
@@ -809,13 +882,62 @@ app.post('/api/admin/users/promote', authRequired, requireAdmin, (req, res) => {
   return res.json({ success: true, message: '已将 ' + username + ' 提升为管理员' });
 });
 
+// 积分总榜（管理端）：全体用户按积分排序 + 贡献明细 + 发放统计 + 最近流水
+app.get('/api/admin/points', authRequired, requireAdmin, (_req, res) => {
+  const users = points.leaderboard(db);
+  const events = db.prepare(
+    'SELECT username, delta, reason, detail, created_at FROM point_events ORDER BY id DESC LIMIT 30'
+  ).all().map((row) => ({
+    username: row.username,
+    delta: row.delta,
+    code: row.reason,
+    label: (points.RULES[row.reason] || {}).label || row.reason,
+    detail: row.detail || '',
+    createdAt: row.created_at
+  }));
+  return res.json({
+    success: true,
+    users,
+    summary: points.boardSummary(db),
+    events,
+    rules: points.ruleList(),
+    levels: points.LEVELS
+  });
+});
+
+// 手动调分（线下表现、活动奖励等）：delta 为 ±1~500 的整数，写入流水便于审计
+app.post('/api/admin/points/adjust', authRequired, requireAdmin, (req, res) => {
+  const { username, delta, reason } = req.body || {};
+  const name = typeof username === 'string' ? username.trim() : '';
+  const value = Math.trunc(Number(delta));
+  if (!name) return res.status(400).json({ success: false, message: '请填写用户名' });
+  if (!Number.isFinite(value) || value === 0) {
+    return res.status(400).json({ success: false, message: '请填写非 0 的调整分值' });
+  }
+  if (Math.abs(value) > 500) {
+    return res.status(400).json({ success: false, message: '单次调整不能超过 500 分' });
+  }
+  const note = typeof reason === 'string' ? reason.trim().slice(0, 100) : '';
+  const result = points.adjust(db, { username: name, delta: value, detail: note || '管理员手动调整' });
+  if (!result.ok) {
+    const message = result.reason === 'no-user' ? '用户不存在' : '调整失败，请检查分值';
+    return res.status(400).json({ success: false, message });
+  }
+  return res.json({
+    success: true,
+    message: (value > 0 ? '已加 ' : '已减 ') + Math.abs(value) + ' 分，当前 ' + result.points + ' 分',
+    points: result.points,
+    level: result.level
+  });
+});
+
 // 管理员后台页面
 app.get('/admin', (_req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'admin.html'));
 });
 
 // 多页面路由（登录、失物、招领、识别、发布、个人中心）
-['login', 'lost', 'found', 'recognize', 'publish', 'profile', 'feedback', 'heatmap', 'agent'].forEach((page) => {
+['login', 'lost', 'found', 'recognize', 'publish', 'profile', 'feedback', 'heatmap', 'agent', 'points'].forEach((page) => {
   app.get('/' + page, (_req, res) => {
     res.sendFile(path.join(__dirname, 'public', page + '.html'));
   });
@@ -847,5 +969,14 @@ app.listen(config.port, config.host, () => {
     backfillMatches();
   } catch (err) {
     console.error('[撮合] 历史数据补算失败：', err.message);
+  }
+  // 积分回填：把已有启事补算成积分（幂等，重复启动不会重复加分）
+  try {
+    const info = points.backfill(db);
+    if (info.added > 0) {
+      console.log('[积分] 历史贡献回填 ' + info.added + ' 条，涉及 ' + info.users + ' 位用户');
+    }
+  } catch (err) {
+    console.error('[积分] 历史数据回填失败：', err.message);
   }
 });

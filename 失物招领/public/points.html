@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>校园积分榜 - 寻物智联</title>
+    <script src="js/app-base.js"></script>
+    <script src="vendor/tailwind.js"></script>
+    <link href="vendor/font-awesome.min.css" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#3B82F6',
+                        secondary: '#10B981',
+                        accent: '#F59E0B',
+                        dark: '#1E293B',
+                        light: '#F8FAFC'
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'Noto Sans SC', 'system-ui', 'sans-serif'],
+                        display: ['Inter', 'Noto Sans SC', 'sans-serif']
+                    }
+                }
+            }
+        }
+    </script>
+    <link href="css/style.css" rel="stylesheet">
+</head>
+<body data-page="points" class="theme-collage bg-slate-50 text-slate-800 font-sans min-h-screen flex flex-col">
+
+    <!-- ==================== 导航栏 ==================== -->
+    <nav class="fixed top-0 left-0 right-0 z-50 glass border-b border-slate-200/50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center h-16">
+                <a href="index.html" class="flex items-center space-x-2">
+                    <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-secondary flex items-center justify-center">
+                        <i class="fa fa-search text-white text-lg"></i>
+                    </div>
+                    <span class="text-xl font-bold text-gradient font-display">寻物智联</span>
+                </a>
+
+                <div class="hidden xl:flex items-center space-x-3">
+                    <a href="index.html" data-nav="home" class="nav-link text-slate-600 hover:text-primary font-medium transition-colors">首页</a>
+                    <a href="lost.html" data-nav="lost" class="nav-link text-slate-600 hover:text-primary font-medium transition-colors">失物列表</a>
+                    <a href="found.html" data-nav="found" class="nav-link text-slate-600 hover:text-primary font-medium transition-colors">招领列表</a>
+                    <a href="nearby.html" data-nav="nearby" class="nav-link text-slate-600 hover:text-primary font-medium transition-colors">地图匹配</a>
+                    <a href="heatmap.html" data-nav="heatmap" class="nav-link text-slate-600 hover:text-primary font-medium transition-colors">失物热力图</a>
+                    <a href="recognize.html" data-nav="recognize" class="nav-link text-slate-600 hover:text-primary font-medium transition-colors">智能识别</a>
+                    <a href="agent.html" data-nav="agent" class="nav-link text-slate-600 hover:text-primary font-medium transition-colors">寻物助手</a>
+                    <a href="publish.html" data-nav="publish" class="nav-link text-slate-600 hover:text-primary font-medium transition-colors">发布信息</a>
+                    <a href="points.html" data-nav="points" class="nav-link text-slate-600 hover:text-primary font-medium transition-colors">积分榜</a>
+                    <a href="profile.html" data-nav="profile" class="nav-link text-slate-600 hover:text-primary font-medium transition-colors">个人中心</a>
+                    <a href="feedback.html" data-nav="feedback" class="nav-link text-slate-600 hover:text-primary font-medium transition-colors inline-flex items-center gap-1"><i class="fa fa-commenting-o"></i>反馈</a>
+                </div>
+
+                <div class="flex items-center space-x-4">
+                    <div id="userArea" class="hidden flex items-center gap-3">
+                        <div class="text-right hidden sm:block">
+                            <div class="text-sm font-medium text-slate-700" id="navUsername">用户</div>
+                            <div class="text-xs text-slate-500">已登录</div>
+                        </div>
+                        <div class="relative">
+                            <button onclick="toggleUserMenu()" class="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-white font-medium overflow-hidden">
+                                <span id="userAvatar">用</span>
+                            </button>
+                            <div id="userMenu" class="hidden absolute right-0 top-12 w-40 bg-white rounded-xl shadow-xl border border-slate-200 py-2">
+                                <a href="profile.html" class="w-full text-left px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 hover:text-primary transition-colors block">
+                                    <i class="fa fa-user-o mr-2"></i>个人中心
+                                </a>
+                                <a href="points.html" class="w-full text-left px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 hover:text-primary transition-colors block">
+                                    <i class="fa fa-trophy mr-2"></i>我的积分
+                                </a>
+                                <hr class="my-2 border-slate-100">
+                                <button onclick="logout()" class="w-full text-left px-4 py-2 text-sm text-red-500 hover:bg-red-50 transition-colors">
+                                    <i class="fa fa-sign-out mr-2"></i>退出登录
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <button class="xl:hidden text-slate-600 text-xl" id="mobileMenuBtn">
+                        <i class="fa fa-bars"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div id="mobileMenu" class="hidden xl:hidden bg-white border-t border-slate-200">
+            <div class="px-4 py-3 space-y-2">
+                <a href="index.html" data-nav="home" class="block py-2 text-slate-600 hover:text-primary">首页</a>
+                <a href="lost.html" data-nav="lost" class="block py-2 text-slate-600 hover:text-primary">失物列表</a>
+                <a href="found.html" data-nav="found" class="block py-2 text-slate-600 hover:text-primary">招领列表</a>
+                <a href="nearby.html" data-nav="nearby" class="block py-2 text-slate-600 hover:text-primary">地图匹配</a>
+                <a href="heatmap.html" data-nav="heatmap" class="block py-2 text-slate-600 hover:text-primary">失物热力图</a>
+                <a href="recognize.html" data-nav="recognize" class="block py-2 text-slate-600 hover:text-primary">智能识别</a>
+                <a href="agent.html" data-nav="agent" class="block py-2 text-slate-600 hover:text-primary">寻物助手</a>
+                <a href="publish.html" data-nav="publish" class="block py-2 text-slate-600 hover:text-primary">发布信息</a>
+                <a href="points.html" data-nav="points" class="block py-2 text-primary font-medium">积分榜</a>
+                <a href="profile.html" data-nav="profile" class="block py-2 text-slate-600 hover:text-primary">个人中心</a>
+                <a href="feedback.html" data-nav="feedback" class="block py-2 text-slate-600 hover:text-primary"><i class="fa fa-commenting-o mr-1"></i>意见反馈</a>
+            </div>
+        </div>
+    </nav>
+
+    <main class="flex-grow pt-16">
+        <!-- ==================== 页头 ==================== -->
+        <section class="collage-banner relative overflow-hidden text-white py-16">
+            <div class="cb-shapes">
+                <span class="shape cb-s1"></span><span class="shape cb-s2"></span><span class="shape cb-s3"></span><span class="shape cb-s4"></span>
+            </div>
+            <div class="cb-dots"></div>
+            <div class="tear-edge"></div>
+            <div class="collage-frame tilt-r hidden lg:block" style="right:4%;top:50%;transform:translateY(-50%);width:340px;max-width:30vw;">
+                <img src="images/corner-art-h.png" alt="拼贴插画装饰">
+            </div>
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
+                <div class="max-w-2xl">
+                    <div class="cb-tape"><span>每一次归还，都被看见</span></div>
+                    <h1 class="text-3xl md:text-4xl lg:text-5xl font-bold font-display leading-tight mb-4 cb-title">
+                        校园 <span class="mark-yellow">积分榜</span>
+                    </h1>
+                    <p class="text-slate-300 text-base md:text-lg leading-relaxed max-w-xl">
+                        发布招领、让物品回家都能积累积分。等级从 Lv.0 新同学开始，捡到东西的你，值得被全校记住。
+                    </p>
+                </div>
+            </div>
+        </section>
+
+        <section class="py-10 bg-slate-50">
+            <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8">
+
+                <!-- ==================== 我的等级 ==================== -->
+                <div class="grid lg:grid-cols-3 gap-6 items-start">
+                    <div class="card-art p-7 lg:col-span-2 relative overflow-hidden">
+                        <div class="absolute -right-10 -top-10 w-40 h-40 rounded-full bg-primary/5"></div>
+                        <div id="myCard">
+                            <div class="flex items-center justify-between mb-4">
+                                <h2 class="text-lg font-bold font-display flex items-center gap-2">
+                                    <i class="fa fa-id-badge text-primary"></i>我的等级
+                                </h2>
+                                <span id="myRank" class="text-xs px-2.5 py-1 rounded-full bg-slate-100 text-slate-500">加载中</span>
+                            </div>
+                            <p class="text-sm text-slate-500">登录后可以查看自己的积分、等级与贡献记录。</p>
+                            <a href="login.html" class="inline-flex items-center gap-2 mt-4 px-5 py-2.5 bg-primary text-white rounded-xl text-sm font-medium hover:bg-primary/90 transition-colors">
+                                <i class="fa fa-sign-in"></i>去登录
+                            </a>
+                            <div class="mt-6 grid sm:grid-cols-3 gap-3 text-xs">
+                                <div class="p-3 rounded-xl bg-slate-50">
+                                    <div class="font-semibold text-slate-700 mb-1">第 1 步</div>
+                                    <div class="text-slate-500 leading-relaxed">捡到物品，发布招领启事 <span class="text-emerald-600 font-medium">+5</span></div>
+                                </div>
+                                <div class="p-3 rounded-xl bg-slate-50">
+                                    <div class="font-semibold text-slate-700 mb-1">第 2 步</div>
+                                    <div class="text-slate-500 leading-relaxed">失主验证认领，归还成功 <span class="text-emerald-600 font-medium">+60</span></div>
+                                </div>
+                                <div class="p-3 rounded-xl bg-slate-50">
+                                    <div class="font-semibold text-slate-700 mb-1">第 3 步</div>
+                                    <div class="text-slate-500 leading-relaxed">积分升级，登上全校排行榜</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 规则说明 -->
+                    <div class="card-art p-7">
+                        <h2 class="text-lg font-bold font-display flex items-center gap-2 mb-4">
+                            <i class="fa fa-bolt text-accent"></i>积分怎么来
+                        </h2>
+                        <div id="ruleList" class="space-y-3 text-sm">
+                            <div class="text-slate-400">加载中...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ==================== 等级阶梯 ==================== -->
+                <div class="card-art p-7">
+                    <h2 class="text-lg font-bold font-display flex items-center gap-2 mb-1">
+                        <i class="fa fa-signal text-secondary"></i>等级阶梯
+                    </h2>
+                    <p class="text-sm text-slate-500 mb-4">注册即为 Lv.0，积分只增不减，等级只升不降。</p>
+                    <div id="levelTrack" class="grid grid-cols-2 sm:grid-cols-4 gap-3"></div>
+                </div>
+
+                <!-- ==================== 排行榜 ==================== -->
+                <div class="card-art p-0 overflow-hidden">
+                    <div class="px-6 py-4 flex flex-wrap items-center justify-between gap-3" style="border-bottom:2px solid var(--ink);background:var(--paper-soft)">
+                        <div>
+                            <h2 class="text-lg font-bold font-display flex items-center gap-2">
+                                <i class="fa fa-trophy" style="color:var(--c-yellow)"></i>全校排行榜
+                            </h2>
+                            <p class="text-xs text-slate-500 mt-1" id="boardMeta">正在统计…</p>
+                        </div>
+                        <button onclick="loadBoard()" class="text-sm px-3 py-1.5 rounded-lg border-2 border-[var(--ink)] text-[var(--ink)] font-medium hover:bg-[var(--c-yellow)] transition-colors">
+                            <i class="fa fa-refresh mr-1"></i>刷新
+                        </button>
+                    </div>
+
+                    <!-- 前三名 -->
+                    <div id="podium" class="grid grid-cols-3 gap-3 sm:gap-6 px-4 sm:px-8 py-8 bg-gradient-to-b from-amber-50/60 to-transparent"></div>
+
+                    <!-- 完整榜单 -->
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm">
+                            <thead>
+                                <tr style="background:var(--paper-soft);color:var(--ink-soft)">
+                                    <th class="px-4 sm:px-6 py-3 text-left font-semibold w-16">排名</th>
+                                    <th class="px-4 sm:px-6 py-3 text-left font-semibold">同学</th>
+                                    <th class="px-4 sm:px-6 py-3 text-left font-semibold">等级</th>
+                                    <th class="px-4 sm:px-6 py-3 text-right font-semibold">归还</th>
+                                    <th class="px-4 sm:px-6 py-3 text-right font-semibold">积分</th>
+                                </tr>
+                            </thead>
+                            <tbody id="boardBody">
+                                <tr><td colspan="5" class="px-6 py-8 text-center text-slate-400">加载中...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="px-6 py-4 text-xs text-slate-400 leading-relaxed" style="border-top:1px dashed rgba(32,48,79,.2)">
+                        榜单每 30 秒自动刷新。积分异常（如自导自演刷分）经管理员核实后会被扣回；如发现异常账号，欢迎通过
+                        <a href="feedback.html" class="text-primary hover:underline">意见反馈</a> 告诉我们。
+                    </div>
+                </div>
+
+            </div>
+        </section>
+    </main>
+
+    <footer class="bg-slate-900 text-slate-400 py-10 mt-auto">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex flex-col md:flex-row justify-between items-center gap-4">
+                <div class="flex items-center space-x-2">
+                    <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-secondary flex items-center justify-center">
+                        <i class="fa fa-search text-white text-sm"></i>
+                    </div>
+                    <span class="font-bold text-white font-display">寻物智联</span>
+                </div>
+                <p class="text-sm">让每一件失物都能物归原主 · 校园公益失物招领平台</p>
+            </div>
+        </div>
+    </footer>
+
+    <script src="js/common.js"></script>
+    <script>
+        const RANK_MEDALS = ['🥇', '🥈', '🥉'];
+        let boardData = null;
+
+        function fmtPoints(n) { return Number(n || 0).toLocaleString('zh-CN'); }
+
+        function levelPill(level, size) {
+            const pad = size === 'lg' ? 'px-3 py-1 text-sm' : 'px-2 py-0.5 text-xs';
+            return `<span class="${pad} rounded-full bg-primary/10 text-primary font-medium whitespace-nowrap">Lv.${level.level} ${esc(level.title)}</span>`;
+        }
+
+        function renderRuleList(rules) {
+            const box = document.getElementById('ruleList');
+            if (!rules || !rules.length) { box.innerHTML = '<div class="text-slate-400">暂无规则</div>'; return; }
+            box.innerHTML = rules.map(r => `
+                <div class="flex items-start gap-3">
+                    <span class="mt-0.5 px-2 py-0.5 rounded-lg bg-emerald-100 text-emerald-700 text-xs font-bold whitespace-nowrap">+${r.delta}</span>
+                    <div>
+                        <div class="font-medium text-slate-700">${esc(r.label)}</div>
+                        <div class="text-xs text-slate-500 mt-0.5 leading-relaxed">${esc(r.desc)}</div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function renderLevelTrack(levels) {
+            const box = document.getElementById('levelTrack');
+            const current = window.__myLevel;
+            box.innerHTML = (levels || []).map(l => {
+                const active = current && current.level === l.level;
+                return `
+                <div class="p-3 rounded-xl border ${active ? 'border-primary bg-primary/5' : 'border-slate-200 bg-slate-50'}">
+                    <div class="text-2xl">${esc(l.badge)}</div>
+                    <div class="mt-1 text-sm font-semibold text-slate-800">Lv.${l.level} ${esc(l.title)}</div>
+                    <div class="text-xs text-slate-500 mt-0.5">${l.min} 分起</div>
+                    ${active ? '<div class="mt-1 text-[11px] text-primary font-medium">当前等级</div>' : ''}
+                </div>`;
+            }).join('');
+        }
+
+        function renderMyCard(me) {
+            const box = document.getElementById('myCard');
+            const rankEl = document.getElementById('myRank');
+            if (!me) {
+                rankEl.textContent = '未登录';
+                window.__myLevel = null;
+                return;
+            }
+            window.__myLevel = me.level;
+            rankEl.textContent = me.rank ? '全校第 ' + me.rank + ' 名 / ' + (boardData ? boardData.totalUsers : '-') + ' 人' : '暂未上榜';
+            const lv = me.level;
+            box.innerHTML = `
+                <div class="flex flex-col sm:flex-row sm:items-center gap-5">
+                    <div class="w-20 h-20 rounded-2xl bg-gradient-to-br from-primary to-secondary flex flex-col items-center justify-center text-white flex-shrink-0">
+                        <div class="text-2xl leading-none">${esc(lv.badge)}</div>
+                        <div class="text-xs mt-1 opacity-90">Lv.${lv.level}</div>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <div class="flex flex-wrap items-baseline gap-2">
+                            <span class="text-xl font-bold font-display text-slate-800">${esc(me.username)}</span>
+                            ${levelPill(lv, 'lg')}
+                        </div>
+                        <div class="mt-2 flex items-end gap-1">
+                            <span class="text-3xl font-bold text-primary font-display">${fmtPoints(me.points)}</span>
+                            <span class="text-sm text-slate-500 mb-1">积分</span>
+                        </div>
+                        <div class="mt-3">
+                            <div class="h-2.5 rounded-full bg-slate-100 overflow-hidden">
+                                <div class="h-full rounded-full bg-gradient-to-r from-primary to-secondary transition-all" style="width:${lv.progress}%"></div>
+                            </div>
+                            <div class="flex justify-between text-xs text-slate-500 mt-1.5">
+                                <span>${lv.maxLevel ? '已满级，感谢你的守护' : '距 Lv.' + lv.nextLevel + ' ' + esc(lv.nextTitle) + ' 还差 ' + lv.toNext + ' 分'}</span>
+                                <span>${lv.maxLevel ? '' : lv.progress + '%'}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="grid grid-cols-3 gap-3 mt-6">
+                    <div class="p-3 rounded-xl bg-slate-50 text-center">
+                        <div class="text-xl font-bold text-slate-800">${me.published || 0}</div>
+                        <div class="text-xs text-slate-500 mt-0.5">累计发布</div>
+                    </div>
+                    <div class="p-3 rounded-xl bg-emerald-50 text-center">
+                        <div class="text-xl font-bold text-emerald-600">${me.returned || 0}</div>
+                        <div class="text-xs text-slate-500 mt-0.5">归还成功</div>
+                    </div>
+                    <div class="p-3 rounded-xl bg-blue-50 text-center">
+                        <div class="text-xl font-bold text-primary">${me.rank || '-'}</div>
+                        <div class="text-xs text-slate-500 mt-0.5">全校排名</div>
+                    </div>
+                </div>
+            `;
+            renderLevelTrack(boardData ? boardData.levels : []);
+        }
+
+        function renderPodium(list) {
+            const box = document.getElementById('podium');
+            if (!list.length) {
+                box.innerHTML = '<div class="col-span-3 text-center text-slate-400 text-sm py-4">还没有同学上榜，发布第一条启事就能抢占第一</div>';
+                return;
+            }
+            const order = [1, 0, 2]; // 银-金-铜 视觉顺序
+            const heights = ['mt-6', 'mt-0', 'mt-10'];
+            box.innerHTML = order.map((idx, i) => {
+                const row = list[idx];
+                if (!row) return '<div></div>';
+                const first = idx === 0;
+                return `
+                <div class="text-center ${heights[i]}">
+                    <div class="mx-auto w-16 h-16 sm:w-20 sm:h-20 rounded-full flex items-center justify-center text-2xl sm:text-3xl ${first ? 'bg-gradient-to-br from-amber-300 to-amber-500' : 'bg-white'} border-4 ${first ? 'border-amber-200' : 'border-slate-200'} shadow-lg">
+                        ${esc(row.level.badge)}
+                    </div>
+                    <div class="mt-2 font-semibold text-slate-800 text-sm sm:text-base truncate">${esc(row.username)}</div>
+                    <div class="text-xs text-slate-500">Lv.${row.level.level} ${esc(row.level.title)}</div>
+                    <div class="mt-1 text-lg sm:text-xl font-bold ${first ? 'text-amber-600' : 'text-slate-700'} font-display">${fmtPoints(row.points)}</div>
+                    <div class="text-2xl mt-1">${RANK_MEDALS[idx]}</div>
+                </div>`;
+            }).join('');
+        }
+
+        function renderBoard(list, me) {
+            const tbody = document.getElementById('boardBody');
+            if (!list.length) {
+                tbody.innerHTML = '<tr><td colspan="5" class="px-6 py-10 text-center text-slate-400">暂无数据</td></tr>';
+                return;
+            }
+            tbody.innerHTML = list.map(row => {
+                const mine = me && me.username === row.username;
+                const medal = RANK_MEDALS[row.rank - 1] || '';
+                return `
+                <tr class="border-t border-slate-200/60 ${mine ? 'bg-primary/5' : ''}">
+                    <td class="px-4 sm:px-6 py-3">
+                        <span class="inline-flex items-center gap-1 font-bold ${row.rank <= 3 ? 'text-amber-600' : 'text-slate-400'}">
+                            ${medal || row.rank}
+                        </span>
+                    </td>
+                    <td class="px-4 sm:px-6 py-3">
+                        <span class="font-medium text-slate-800">${esc(row.username)}</span>
+                        ${mine ? '<span class="ml-2 px-1.5 py-0.5 rounded bg-primary text-white text-[10px]">我</span>' : ''}
+                        ${row.role === 'admin' ? '<span class="ml-2 px-1.5 py-0.5 rounded bg-orange-100 text-orange-700 text-[10px]">管理员</span>' : ''}
+                    </td>
+                    <td class="px-4 sm:px-6 py-3">${levelPill(row.level)}</td>
+                    <td class="px-4 sm:px-6 py-3 text-right text-slate-500">${row.returned || 0}</td>
+                    <td class="px-4 sm:px-6 py-3 text-right font-bold text-slate-800">${fmtPoints(row.points)}</td>
+                </tr>`;
+            }).join('');
+        }
+
+        async function loadBoard() {
+            const data = await api.get('/api/points/leaderboard?limit=0');
+            boardData = data;
+            const summary = data.summary || {};
+            document.getElementById('boardMeta').textContent =
+                '共 ' + (data.totalUsers || 0) + ' 位同学参与 · 累计发放 ' + fmtPoints(summary.totalPoints) +
+                ' 分 · 人均 ' + fmtPoints(summary.avgPoints) + ' 分';
+            renderRuleList(data.rules);
+            renderPodium((data.leaderboard || []).slice(0, 3));
+            renderBoard(data.leaderboard || [], data.me);
+            renderMyCard(data.me);
+            renderLevelTrack(data.levels);
+        }
+
+        document.addEventListener('DOMContentLoaded', async function () {
+            await softInitNav();
+            try {
+                await loadBoard();
+            } catch (e) {
+                document.getElementById('boardBody').innerHTML =
+                    '<tr><td colspan="5" class="px-6 py-8 text-center text-red-500">榜单加载失败，请刷新重试</td></tr>';
+            }
+            setInterval(() => { loadBoard().catch(() => {}); }, 30000);
+        });
+    </script>
+</body>
+</html>

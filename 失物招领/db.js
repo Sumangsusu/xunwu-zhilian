@@ -5,6 +5,7 @@ const Database = require('better-sqlite3');
 const bcrypt = require('bcryptjs');
 
 const { dbPath, seedDevUser } = require('./config');
+const pointsRules = require('./points');
 fs.mkdirSync(path.dirname(dbPath), { recursive: true, mode: 0o700 });
 const db = new Database(dbPath);
 db.pragma('journal_mode = WAL');
@@ -19,6 +20,7 @@ CREATE TABLE IF NOT EXISTS users (
   avatar        TEXT DEFAULT '',
   signature     TEXT DEFAULT '',
   role          TEXT NOT NULL DEFAULT 'user',
+  points        INTEGER NOT NULL DEFAULT 0,
   created_at    INTEGER NOT NULL
 );
 
@@ -75,6 +77,22 @@ CREATE TABLE IF NOT EXISTS quiz_attempts (
   updated_at  INTEGER NOT NULL,
   PRIMARY KEY (item_id, username)
 );
+
+-- 积分流水：唯一事实来源，users.points 只是冗余缓存。
+-- ref 为幂等键（publish:12 / resolve:12 / admin:...），同一用户同一 ref 只记一次。
+CREATE TABLE IF NOT EXISTS point_events (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  username   TEXT NOT NULL,
+  delta      INTEGER NOT NULL,
+  reason     TEXT NOT NULL,
+  detail     TEXT DEFAULT '',
+  ref        TEXT,
+  created_at INTEGER NOT NULL,
+  UNIQUE(username, ref)
+);
+
+CREATE INDEX IF NOT EXISTS idx_point_events_user ON point_events(username, id);
+CREATE INDEX IF NOT EXISTS idx_point_events_reason ON point_events(reason, created_at);
 `);
 
 // 在写锁内检查列，兼容旧库和并发启动。
@@ -82,6 +100,9 @@ db.transaction(() => {
   const userColumns = db.pragma('table_info(users)').map((column) => column.name);
   if (!userColumns.includes('role')) {
     db.exec("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'");
+  }
+  if (!userColumns.includes('points')) {
+    db.exec('ALTER TABLE users ADD COLUMN points INTEGER NOT NULL DEFAULT 0');
   }
   const itemColumns = db.pragma('table_info(items)').map((column) => column.name);
   const columns = {
@@ -96,6 +117,7 @@ db.transaction(() => {
 
 // ---------------- 字段映射（不暴露密码哈希） ----------------
 function mapUser(row) {
+  const points = Number(row.points) || 0;
   return {
     id: row.id,
     username: row.username,
@@ -103,6 +125,8 @@ function mapUser(row) {
     avatar: row.avatar || '',
     signature: row.signature || '',
     role: row.role || 'user',
+    points,
+    level: pointsRules.levelInfo(points),
     createdAt: row.created_at
   };
 }

@@ -153,6 +153,17 @@ const Feedback = {
     async getMy() { const d = await api.get('/api/feedback/mine'); return d.feedback; }
 };
 
+// ---------------- 积分与等级 ----------------
+const Points = {
+    // 我的积分：总分、等级、排名、最近流水、规则
+    async me() { return await api.get('/api/points/me'); },
+    // 排行榜：limit 省略取前 20，0 表示全部
+    async board(limit) {
+        const q = limit == null ? '' : '?limit=' + encodeURIComponent(limit);
+        return await api.get('/api/points/leaderboard' + q);
+    }
+};
+
 // ---------------- 鉴权与导航 ----------------
 // 导航红点：有未读撮合时，在指向个人中心的链接后追加一个小圆点
 function paintMatchBadge(count) {
@@ -186,6 +197,7 @@ async function requireAuth() {
     const userArea = document.getElementById('userArea');
     if (navUsername) navUsername.textContent = user.username;
     if (userArea) userArea.classList.remove('hidden');
+    paintNavLevel(user);
     updateNavAvatar(user);
     paintMatchBadge(matchUnread);
     highlightNav();
@@ -202,6 +214,7 @@ async function softInitNav() {
         const userArea = document.getElementById('userArea');
         if (navUsername) navUsername.textContent = user.username;
         if (userArea) userArea.classList.remove('hidden');
+        paintNavLevel(user);
         updateNavAvatar(user);
         paintMatchBadge(matchUnread);
     }
@@ -220,6 +233,15 @@ function highlightNav() {
             a.classList.remove('text-primary', 'font-semibold');
         }
     });
+}
+
+// 导航栏用户信息第二行：把「已登录」替换成等级，让积分体系在每一页都可见
+function paintNavLevel(user) {
+    if (!user || !user.level) return;
+    const navUsername = document.getElementById('navUsername');
+    if (!navUsername || !navUsername.parentElement) return;
+    const sub = navUsername.parentElement.querySelector('.text-xs');
+    if (sub) sub.textContent = 'Lv.' + user.level.level + ' ' + user.level.title;
 }
 
 function updateNavAvatar(user) {
