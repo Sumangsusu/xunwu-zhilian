@@ -1,0 +1,11 @@
+把下面这一整行（单行，不要换行）粘贴到阿里云轻量服务器「命令助手 / Workbench 终端」执行即可上线积分体系：
+
+set -e; cd /tmp; rm -rf xw-pts; mkdir xw-pts; curl -fsSL --retry 3 https://codeload.github.com/Sumangsusu/xunwu-zhilian/tar.gz/refs/heads/fix/quiz-attempt-limit -o xw-pts/m.tgz; tar -xzf xw-pts/m.tgz -C xw-pts; SRC=$(dirname $(find /tmp/xw-pts -type f -name points.js | head -1)); DST=$(dirname $(find /opt/xunwu-zhilian -maxdepth 3 -type f -name server.js | head -1)); echo SRC=$SRC DST=$DST; test -f "$SRC/points.js"; test -f "$DST/server.js"; for f in server.js db.js points.js; do cp -f "$DST/$f" "$DST/$f.bak-points"; cp -f "$SRC/$f" "$DST/$f"; done; for f in points.html admin.html profile.html publish.html index.html lost.html found.html heatmap.html recognize.html feedback.html; do cp -f "$DST/public/$f" "$DST/public/$f.bak-points"; cp -f "$SRC/public/$f" "$DST/public/$f"; done; cp -f "$DST/public/js/common.js" "$DST/public/js/common.js.bak-points"; cp -f "$SRC/public/js/common.js" "$DST/public/js/common.js"; CID=$(docker ps -q -f name=xunwu-zhilian-app | head -1); echo CID=$CID; test -n "$CID"; for f in server.js db.js points.js; do docker cp "$DST/$f" "$CID:/app/$f"; done; docker cp "$DST/public/js/common.js" "$CID:/app/public/js/common.js"; for f in points.html admin.html profile.html publish.html index.html lost.html found.html heatmap.html recognize.html feedback.html; do docker cp "$DST/public/$f" "$CID:/app/public/$f"; done; docker restart "$CID"; sleep 8; echo "=== HEALTH ==="; curl -sS http://127.0.0.1/health; echo; echo "=== PAGE ==="; curl -sS -o /dev/null -w "points_page=%{http_code}\n" http://127.0.0.1/points; echo "=== BOARD ==="; curl -sS "http://127.0.0.1/api/points/leaderboard?limit=3" | head -c 320; echo; echo DEPLOY_DONE
+
+执行成功后应看到：
+- health 返回 {"status":"ok"}
+- points_page=200
+- BOARD 返回一段 JSON，含 leaderboard / summary / levels
+- 最后一行 DEPLOY_DONE
+
+如中途报错，把最后 10 行输出发我，我按报错位置修正。
