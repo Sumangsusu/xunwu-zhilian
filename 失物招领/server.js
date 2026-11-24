@@ -365,7 +365,10 @@ function haversineMeters(lng1, lat1, lng2, lat2) {
 // ?lng=&lat=&radius= 地图选点半径匹配，与关键词可任意组合；两者至少提供其一。
 //   关键词与半径是「与」关系，可先选点再输入关键词收窄，也可反过来；匹配后经 publicItem 脱敏。
 app.get('/api/items', (req, res) => {
-  const { type, publisher, q, lng, lat, radius, mapX, mapY } = req.query;
+  const { type, publisher, q, lng, lat, radius, mapX, mapY, browse } = req.query;
+  // browse=1 供首页/列表页浏览最新启事：不受"必须有关键词或选点"限制，仍按 type/status 过滤。
+  // 地图页 nearby.html 不传此参数，保持"至少输入关键词或选点"的约束。
+  const isBrowse = browse === '1';
   let sql = "SELECT * FROM items WHERE status = 'active'";
   const params = [];
   if (type === 'lost' || type === 'found') {
@@ -390,7 +393,7 @@ app.get('/api/items', (req, res) => {
   const center = hasGeo ? { lng: pLng, lat: pLat }
     : hasSvg ? (approxGeo(sX, sY) || coordinates({ mapX: sX, mapY: sY })) : null;
   const hasCenter = Boolean(center && center.lng != null && center.lat != null);
-  if (!keyword && !hasCenter) {
+  if (!keyword && !hasCenter && !isBrowse) {
     return res.json({ success: true, items: [], hint: '请至少输入关键词或在地图上选点' });
   }
 

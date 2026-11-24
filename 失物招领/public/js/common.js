@@ -130,9 +130,9 @@ const UserDB = {
 
 // ---------------- 物品数据库 ----------------
 const DB = {
-    async getAll() { const d = await api.get('/api/items'); return d.items; },
-    async getLost() { const d = await api.get('/api/items?type=lost'); return d.items; },
-    async getFound() { const d = await api.get('/api/items?type=found'); return d.items; },
+    async getAll() { const d = await api.get('/api/items?browse=1'); return d.items; },
+    async getLost() { const d = await api.get('/api/items?type=lost&browse=1'); return d.items; },
+    async getFound() { const d = await api.get('/api/items?type=found&browse=1'); return d.items; },
     async getById(id) { const d = await api.get('/api/items/' + id); return d.item; },
     // 返回完整响应：{ item, matches }，发布页据此提示"已在站内找到 N 条"
     async add(item) { return await api.post('/api/items', item); },
