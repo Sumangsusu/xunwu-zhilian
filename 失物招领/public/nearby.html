@@ -17,6 +17,9 @@
         .paper-card { background:#FFFDF7; border:2px solid #20304F; border-radius:16px; box-shadow:4px 4px 0 #20304F; }
         .paper-input { background:#fff; border:2px solid #20304F; border-radius:10px; }
         .campus-map-wrap { height:460px; background:#F4EDDF; }
+        .result-card { transition:transform .15s ease, box-shadow .15s ease; }
+        .result-card:hover { transform:translate(-2px,-2px); box-shadow:5px 5px 0 #20304F; border-color:#2E7D6B; }
+        .result-card:focus { outline:2px solid #F59E0B; outline-offset:2px; }
     </style>
 </head>
 <body class="bg-[#F4EDDF] min-h-screen font-sans text-[#20304F]">
@@ -78,6 +81,19 @@
         </div>
     </main>
 
+    <!-- 物品详情弹窗（与首页共用 common.js 的 showItemDetail / closeModal） -->
+    <div id="itemModal" class="fixed inset-0 z-50 hidden items-center justify-center p-4">
+        <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" onclick="closeModal()"></div>
+        <div class="relative modal-art max-w-lg w-full max-h-[90vh] overflow-y-auto fade-in">
+            <button onclick="closeModal()" class="absolute top-4 right-4 w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center hover:bg-slate-200 transition-colors z-10">
+                <i class="fa fa-times text-slate-600"></i>
+            </button>
+            <div id="modalContent">
+            </div>
+        </div>
+    </div>
+
+    <script src="js/common.js"></script>
     <script src="js/campus-map.js"></script>
     <script>
         let picked = null;
@@ -100,7 +116,7 @@
             const color = isLost ? '#C0392B' : '#2E7D6B';
             const distance = item.distance == null ? '—' : item.distance + '<span class="text-xs"> m</span>';
             return `
-            <article class="border-2 border-[#20304F] rounded-xl bg-white p-3 mb-3 shadow-[2px_2px_0_#20304F]">
+            <article class="result-card card-hover cursor-pointer border-2 border-[#20304F] rounded-xl bg-white p-3 mb-3 shadow-[2px_2px_0_#20304F]" data-id="${Number(item.id) || 0}" onclick="showItemDetail(${Number(item.id) || 0})" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();showItemDetail(${Number(item.id) || 0})}">
                 <div class="flex items-start justify-between gap-2">
                     <div class="min-w-0">
                         <div class="flex flex-wrap items-center gap-2 mb-1">
