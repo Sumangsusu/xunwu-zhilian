@@ -706,7 +706,12 @@
         const ctx = canvas.getContext('2d');
         const W = canvas.width, H = canvas.height;
         ctx.fillStyle = '#F4EDDF'; ctx.fillRect(0, 0, W, H);
-        const geo = (items || []).filter(i => i.lng != null && i.lat != null);
+        // 与页面热力图一致：老启事只有示意图坐标时折算为区域级近似经纬度，
+        // 否则导出图会只剩个别有实测坐标的点，和页面看到的分布对不上。
+        const withGeo = window.CampusMapGL && window.CampusMapGL.withApproxGeo
+            ? window.CampusMapGL.withApproxGeo(items || [])
+            : (items || []);
+        const geo = withGeo.filter(i => i.lng != null && i.lat != null);
         if (!geo.length) {
             ctx.fillStyle = '#6B6A63'; ctx.font = '16px sans-serif';
             ctx.fillText('暂无带经纬度的启事数据', 24, H / 2);

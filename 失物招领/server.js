@@ -844,9 +844,12 @@ app.get('/api/admin/users', authRequired, requireAdmin, (_req, res) => {
 });
 
 // 物品列表（管理用）
+// 与 /api/items/heatmap 一致，给只有示意图坐标（mapX/mapY）的老启事回填区域级近似经纬度。
+// 管理端热力图直接消费本接口；不回填会出现「50 条启事里只有 1 条有经纬度、地图只剩 1 个点」。
 app.get('/api/admin/items', authRequired, requireAdmin, (_req, res) => {
   const rows = db.prepare('SELECT * FROM items ORDER BY id DESC').all();
-  return res.json({ success: true, items: rows.map(mapItem) });
+  const items = rows.map(mapItem).map((item) => ({ ...item, ...coordinates(item) }));
+  return res.json({ success: true, items });
 });
 
 // 意见反馈汇总（含分类/状态统计）

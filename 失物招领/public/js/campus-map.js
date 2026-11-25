@@ -146,6 +146,29 @@ function aggregateHeatPoints(items, gridDeg) {
   return Array.from(buckets.values());
 }
 
+/**
+ * 真实地图模式下，给只有示意图坐标（mapX/mapY）的老启事补一个「区域级」近似经纬度。
+ * - 与小程序 heatmap.js 的无经纬度兜底同思路，避免「只要 1 条有真实坐标就切 GL 模式，
+ *   其余只带示意图坐标的启事全被 aggregateHeatPoints 丢弃」导致地图上只剩 1 个点。
+ * - 折算只依赖后端下发的校园中心点，精度到功能区量级；随后仍走网格聚合，
+ *   不对外暴露单条启事的精确坐标。
+ * - 有真实 lng/lat 的点原样保留，不覆盖实测数据。
+ */
+function withApproxGeo(items, center) {
+  const c = center && isChinaGcj02(center.lng, center.lat)
+    ? { lng: Number(center.lng), lat: Number(center.lat) }
+    : { lng: 114.36444, lat: 30.536286 };
+  const latRad = c.lat * Math.PI / 180;
+  return (Array.isArray(items) ? items : []).map(function (p) {
+    if (!p || (p.lng != null && p.lat != null)) return p;
+    if (!isFiniteNumber(p.mapX) || !isFiniteNumber(p.mapY)) return p;
+    const lng = c.lng + (Number(p.mapX) - 500) * 2 / (111320 * Math.cos(latRad));
+    const lat = c.lat - (Number(p.mapY) - 350) * 2 / 110540;
+    if (!isChinaGcj02(lng, lat)) return p;
+    return Object.assign({}, p, { lng: round6(lng), lat: round6(lat), approx: true });
+  });
+}
+
 /** 转成官方热力层 setData 的数据格式 [{lat,lng,count}] */
 function toHeatData(points) {
   return (Array.isArray(points) ? points : []).map(function (p) {
@@ -550,7 +573,9 @@ function renderSvgHeat(overlay, items) {
         }
 
         handle.update = function (list) {
-          const pts = aggregateHeatPoints(normalizeHeatItems(list));
+          // 先把只有 mapX/mapY 的老启事折算为区域级近似经纬度（不覆盖实测值），
+          // 再聚合。否则混合数据下只带示意图坐标的启事会被整批丢弃，地图只剩个别点。
+          const pts = aggregateHeatPoints(withApproxGeo(normalizeHeatItems(list), cfg.center));
           try { heat.setData(toHeatData(pts)); } catch (e) { /* 热力层异常不影响列表 */ }
 
           // 热力强度上限跟随实际峰值：没有热点时也不至于把全部数据压成透明
@@ -600,6 +625,7 @@ function renderSvgHeat(overlay, items) {
     resolveMapMode: resolveMapMode,
     normalizeHeatItems: normalizeHeatItems,
     aggregateHeatPoints: aggregateHeatPoints,
+    withApproxGeo: withApproxGeo,
     toHeatData: toHeatData,
     buildPublishCoords: buildPublishCoords,
     renderSvgHeat: renderSvgHeat,
@@ -622,6 +648,7 @@ if (typeof module !== 'undefined' && module.exports) {
     resolveMapMode: resolveMapMode,
     normalizeHeatItems: normalizeHeatItems,
     aggregateHeatPoints: aggregateHeatPoints,
+    withApproxGeo: withApproxGeo,
     toHeatData: toHeatData,
     canFitBounds: canFitBounds,
     fitPoints: fitPoints,

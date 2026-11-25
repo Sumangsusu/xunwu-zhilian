@@ -78,6 +78,21 @@ check('示意坐标保留（老数据兼容）', norm[0].mapX === 420 && norm[0]
 check('中国范围外经纬度丢弃', M.normalizeHeatItems([{ lng: 0, lat: 0, mapX: 1, mapY: 2 }])[0].lng === null);
 check('非数组输入返回空', Array.isArray(M.normalizeHeatItems(null)) && M.normalizeHeatItems(null).length === 0);
 
+// 混合数据：只有示意图坐标的老启事也能落到真实地图上（修复管理端只显示 1 个点）
+const approx = M.withApproxGeo([
+    { lng: 114.36012, lat: 30.53012, mapX: 420, mapY: 100, id: 1 },
+    { lng: null, lat: null, mapX: 420, mapY: 100, id: 2 },
+    { lng: null, lat: null, mapX: 700, mapY: 500, id: 3 },
+    { lng: null, lat: null, mapX: null, mapY: null, id: 4 }
+], { lng: 114.36444, lat: 30.536286 });
+check('真实经纬度不被近似折算覆盖', approx[0].lng === 114.36012 && !approx[0].approx, JSON.stringify(approx[0]));
+check('仅示意图坐标的启事折算为 GCJ-02 近似点', approx[1].lng != null && approx[1].lat != null && approx[1].approx === true, JSON.stringify(approx[1]));
+check('不同区域折算到不同点位（不止 1 个点）', approx[1].lng !== approx[2].lng || approx[1].lat !== approx[2].lat);
+check('无坐标无示意图的启事保持无经纬度', approx[3].lng == null && approx[3].lat == null);
+check('无经纬度时仍能降级到默认校园中心', M.withApproxGeo([{ mapX: 420, mapY: 100 }], null)[0].lng != null);
+const mixedAgg = M.aggregateHeatPoints(approx);
+check('混合数据聚合出多个网格点', mixedAgg.length >= 2, JSON.stringify(mixedAgg));
+
 // 聚合：不渲染单条精确坐标
 const agg = M.aggregateHeatPoints([
     { lng: 114.36012, lat: 30.53012 },
@@ -314,7 +329,9 @@ const noFetch = async function () { return { ok: false, status: 404, json: async
     check('只使用官方真实存在的 API', OFFICIAL_APIS.every(a => mapSrc.indexOf(a) >= 0), OFFICIAL_APIS.filter(a => mapSrc.indexOf(a) < 0).join(','));
     check('坐标系标注 GCJ-02 且不做 WGS-84 转换', /GCJ-02/.test(mapSrc) && !/WGS-?84\s*(?:to|2|=>|转)/i.test(mapSrc));
     check('地图容器固定高度常量存在', /MAP_GL_HEIGHT/.test(mapSrc) && /canvas\.style\.height/.test(mapSrc));
-    check('热力层只做聚合（setData 前先 aggregate）', /aggregateHeatPoints\(normalizeHeatItems/.test(mapSrc));
+    check('热力层只做聚合（setData 前先 aggregate）', /aggregateHeatPoints\(withApproxGeo\(normalizeHeatItems/.test(mapSrc));
+    check('混合数据下老示意图坐标折算为近似经纬度（不再只显示 1 个点）',
+        /function withApproxGeo/.test(mapSrc) && /aggregateHeatPoints\(withApproxGeo\(normalizeHeatItems/.test(mapSrc));
     check('真实地图有离散计数标记（圆点+数字，不只靠透明热力斑）', /buildHeatMarkerStyles/.test(mapSrc) && /pinLayer\.updateGeometries/.test(mapSrc));
     check('热力上限按峰值动态调整（不写死 max=60 抹平数据）', /heat\.setMax/.test(mapSrc));
     check('视野自适应只在 overview 模式启用（公开页不被重置）', /opts\.overview === true && pts\.length && canFitBounds/.test(mapSrc) && /overview:\s*true/.test(adminSrc));
