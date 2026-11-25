@@ -440,7 +440,11 @@ function renderSvgHeat(overlay, items) {
           if (hasService) {
             try {
               const geo = new T.service.Geocoder();
-              const r = await geo.getAddress({ location: new T.LatLng(lat, lng) });
+              // 逆地理编码超时/失败不能阻塞选点，否则按钮一直禁用，用户会以为搜索失效
+              const r = await Promise.race([
+                geo.getAddress({ location: new T.LatLng(lat, lng) }),
+                new Promise(resolve => setTimeout(() => resolve(null), 1500))
+              ]);
               const d = r && (r.result || (r.data && r.data[0]));
               address = d && d.address ? String(d.address) : '';
             } catch (e) { address = ''; }

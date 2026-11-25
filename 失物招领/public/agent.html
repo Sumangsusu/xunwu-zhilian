@@ -33,9 +33,9 @@
 <div class="quick-links"><a href="publish.html">＋ 发布启事</a><a href="recognize.html">▧ 图片识别</a><a href="heatmap.html">◎ 失物热力图</a></div></section>
 <section class="paper map-panel"><div class="section-title"><h2>缩小寻找范围</h2><button id="clearLocation" type="button" class="text-button">清除选点</button></div>
 <p id="mapMode" class="small">正在加载校园地图…</p><div id="agentMap" aria-label="搜索位置地图"></div>
-<p id="selectedLocation" class="small" aria-live="polite">点击地图选点，也可以直接输入地点。</p>
+<p id="selectedLocation" class="small" aria-live="polite">点击地图选点；选点后所有查询都会优先在该范围内查找。</p>
 <label id="radiusLabel" class="radius" hidden>范围 <select id="radius"><option value="500">500 米</option><option value="1000" selected>1 公里</option><option value="2000">2 公里</option><option value="5000">5 公里</option></select></label>
-<button type="button" id="nearbySearch" class="secondary" disabled>查找选点附近的物品</button>
+<button type="button" id="nearbySearch" class="secondary" disabled>查找选点附近的失物和招领</button>
 </section>
 <section class="paper settings-panel"><label for="agentMode"><strong>查询方式</strong></label><select id="agentMode"><option value="local">站内检索 · 无需模型</option value="model" disabled>模型辅助 · 尚未配置</option></select>
 <p id="modelNote" class="small">使用网站现有数据检索。对话仅保留在当前页面，刷新后清空。</p>

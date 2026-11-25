@@ -39,13 +39,13 @@
   function clearLocation() {
     selected = null;
     mapHandle?.marker?.setGeometries?.([]);
-    el('selectedLocation').textContent = '点击地图选点，也可以直接输入地点。';
+    el('selectedLocation').textContent = '点击地图选点；选点后所有查询都会优先在该范围内查找。';
     el('nearbySearch').disabled = true;
     const overlay = el('agentMap').querySelector('#mapOverlay');
     if (overlay) overlay.replaceChildren();
   }
   el('clearLocation').addEventListener('click', clearLocation);
-  el('nearbySearch').addEventListener('click', () => { fill('查找附近的物品'); el('chatForm').requestSubmit(); });
+  el('nearbySearch').addEventListener('click', () => { fill('查找附近的失物和招领'); el('chatForm').requestSubmit(); });
   el('agentMode').addEventListener('change', () => {
     const model = el('agentMode').value === 'model';
     el('modeBadge').textContent = model ? '模型辅助' : '站内检索';
@@ -65,7 +65,7 @@
       currentLocation: () => selected?.address || '',
       onPick: point => {
         selected = point;
-        el('selectedLocation').textContent = '已选择：' + (point.address || (point.lng != null ? '地图选点' : '校园区域'));
+        el('selectedLocation').textContent = '已选择：' + (point.address || (point.lng != null ? '地图选点' : '校园区域')) + ' · 后续查询按此范围筛选';
         el('nearbySearch').disabled = busy;
         if (mapHandle?.mode === 'svg') {
           const overlay = el('agentMap').querySelector('#mapOverlay');
