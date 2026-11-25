@@ -41,7 +41,7 @@
                     <span class="text-xl font-bold text-gradient font-display">寻物智联</span>
                 </a>
 
-                <div class="hidden xl:flex items-center space-x-4">
+                <div class="hidden xl:flex items-center space-x-3">
                     <a href="index.html" data-nav="home" class="nav-link text-slate-600 hover:text-primary font-medium transition-colors">首页</a>
                     <a href="lost.html" data-nav="lost" class="nav-link text-slate-600 hover:text-primary font-medium transition-colors">失物列表</a>
                     <a href="found.html" data-nav="found" class="nav-link text-slate-600 hover:text-primary font-medium transition-colors">招领列表</a>
@@ -49,6 +49,7 @@
                     <a href="recognize.html" data-nav="recognize" class="nav-link text-slate-600 hover:text-primary font-medium transition-colors">智能识别</a>
                     <a href="agent.html" data-nav="agent" class="nav-link text-slate-600 hover:text-primary font-medium transition-colors">寻物助手</a>
                     <a href="publish.html" data-nav="publish" class="nav-link text-slate-600 hover:text-primary font-medium transition-colors">发布信息</a>
+                    <a href="points.html" data-nav="points" class="nav-link text-slate-600 hover:text-primary font-medium transition-colors">积分榜</a>
                     <a href="profile.html" data-nav="profile" class="nav-link text-slate-600 hover:text-primary font-medium transition-colors">个人中心</a>
                     <a href="feedback.html" data-nav="feedback" class="nav-link text-slate-600 hover:text-primary font-medium transition-colors inline-flex items-center gap-1"><i class="fa fa-commenting-o"></i>意见反馈</a>
                 </div>
@@ -93,6 +94,7 @@
                 <a href="recognize.html" data-nav="recognize" class="block py-2 text-slate-600 hover:text-primary">智能识别</a>
                     <a href="agent.html" data-nav="agent" class="block py-2 text-slate-600 hover:text-primary">寻物助手</a>
                 <a href="publish.html" data-nav="publish" class="block py-2 text-slate-600 hover:text-primary">发布信息</a>
+                <a href="points.html" data-nav="points" class="block py-2 text-slate-600 hover:text-primary">积分榜</a>
                 <a href="profile.html" data-nav="profile" class="block py-2 text-slate-600 hover:text-primary">个人中心</a>
                 <a href="feedback.html" data-nav="feedback" class="block py-2 text-primary font-medium hover:text-primary"><i class="fa fa-commenting-o mr-1"></i>意见反馈</a>
             </div>
@@ -187,6 +189,40 @@ publish.html
                             <div class="flex justify-between items-center p-4 bg-slate-50 rounded-xl">
                                 <span class="text-sm text-slate-500">发布总数</span>
                                 <span class="text-sm font-medium text-slate-800" id="profilePublishCount">0</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 我的积分与等级 -->
+                    <div class="card-art p-8 mb-8" id="pointsCard">
+                        <div class="flex items-center justify-between mb-4">
+                            <h4 class="text-lg font-semibold text-slate-800 font-display flex items-center gap-2">
+                                <i class="fa fa-trophy text-accent"></i>
+                                积分与等级
+                            </h4>
+                            <a href="points.html" class="text-sm text-primary hover:underline">查看积分榜<i class="fa fa-angle-right ml-1"></i></a>
+                        </div>
+                        <div class="flex items-center gap-5">
+                            <div id="levelBadge" class="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-white text-2xl flex-shrink-0">🌱</div>
+                            <div class="flex-1 min-w-0">
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <span id="levelTitle" class="font-semibold text-slate-800">Lv.0 新同学</span>
+                                    <span id="rankText" class="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">-</span>
+                                </div>
+                                <div class="flex items-end gap-1 mt-1">
+                                    <span id="pointsTotal" class="text-2xl font-bold text-primary font-display">0</span>
+                                    <span class="text-xs text-slate-500 mb-1">积分</span>
+                                </div>
+                                <div class="h-2 rounded-full bg-slate-100 overflow-hidden mt-2">
+                                    <div id="levelProgress" class="h-full rounded-full bg-gradient-to-r from-primary to-secondary transition-all" style="width:0%"></div>
+                                </div>
+                                <div id="levelHint" class="text-xs text-slate-500 mt-1">发布招领启事即可开始积累积分</div>
+                            </div>
+                        </div>
+                        <div class="mt-5">
+                            <div class="text-xs font-medium text-slate-500 mb-2">最近积分记录</div>
+                            <div id="pointsLog" class="space-y-2">
+                                <div class="text-sm text-slate-400">暂无记录</div>
                             </div>
                         </div>
                     </div>
@@ -504,6 +540,47 @@ publish.html
             updateAvatarUi(user);
         }
 
+        // 积分与等级卡片：等级、排名、进度、最近流水
+        async function loadPointsCard() {
+            let data;
+            try {
+                data = await Points.me();
+            } catch (e) {
+                return;
+            }
+            const lv = data.level || {};
+            document.getElementById('levelBadge').textContent = lv.badge || '🌱';
+            document.getElementById('levelTitle').textContent = 'Lv.' + lv.level + ' ' + (lv.title || '');
+            document.getElementById('pointsTotal').textContent = Number(data.points || 0).toLocaleString('zh-CN');
+            document.getElementById('rankText').textContent = data.rank
+                ? '全校第 ' + data.rank + ' / ' + data.totalUsers + ' 名'
+                : '暂未上榜';
+            document.getElementById('levelProgress').style.width = (lv.progress || 0) + '%';
+            document.getElementById('levelHint').textContent = lv.maxLevel
+                ? '已满级，感谢你为校园失物招领做的一切'
+                : '距 Lv.' + lv.nextLevel + ' ' + lv.nextTitle + ' 还差 ' + lv.toNext + ' 分';
+
+            const log = document.getElementById('pointsLog');
+            const recent = data.recent || [];
+            if (!recent.length) {
+                log.innerHTML = '<div class="text-sm text-slate-400">暂无记录，发布一条招领启事就能得分</div>';
+                return;
+            }
+            log.innerHTML = recent.slice(0, 5).map((row) => {
+                const d = new Date(row.createdAt);
+                const date = (d.getMonth() + 1) + '/' + d.getDate();
+                const positive = row.delta >= 0;
+                return `
+                    <div class="flex items-center justify-between gap-3 py-1.5 border-b border-slate-100 last:border-0">
+                        <div class="min-w-0">
+                            <div class="text-sm text-slate-700 truncate">${esc(row.label)}</div>
+                            <div class="text-xs text-slate-400 truncate">${esc(row.detail || '')} · ${date}</div>
+                        </div>
+                        <span class="text-sm font-bold ${positive ? 'text-emerald-600' : 'text-red-500'} flex-shrink-0">${positive ? '+' : ''}${row.delta}</span>
+                    </div>`;
+            }).join('');
+        }
+
         document.addEventListener('DOMContentLoaded', async function () {
             const ok = await requireAuth();
             if (!ok) return;
@@ -511,6 +588,7 @@ publish.html
             const user = UserDB.getCurrent();
             fillProfile(user);
             window.refreshAfterItemChange = renderMyPublish;
+            await loadPointsCard();
             await renderMatches();
             await renderMyPublish();
 
