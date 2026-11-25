@@ -131,6 +131,8 @@ check('部分关键字：艺术馆 命中 万林艺术博物馆', VmAlias.matchL
 check('部分关键字：三楼自习 命中 图书馆三楼自习室', VmAlias.matchLocation('三楼自习', '图书馆三楼自习室'));
 check('双向子串：完整地点查询 命中 简称文本', VmAlias.matchText('图书馆三楼自习室', '图书馆'));
 check('片段召回不误伤：一教 不命中 301教室', !VmAlias.matchLocation('一教', '301教室'));
+check('双向子串不误伤：301教室 不命中 信息学部一教', !VmAlias.matchLocation('301教室', '信息学部一教'));
+check('双向子串不误伤：201教 不命中 信息学部一教', !VmAlias.matchLocation('201教', '信息学部一教'));
 check('片段召回不误伤：万林 不命中 图书馆', !VmAlias.matchLocation('万林', '图书馆三楼'));
 check('matchItem：万林 命中 location=艺术楼画室的启事',
     VmAlias.matchItem('万林', { title: '蓝色水杯', location: '艺术楼画室', description: '', category: '其他' }));

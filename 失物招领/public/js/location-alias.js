@@ -188,6 +188,21 @@
     return false;
   }
 
+  /**
+   * 子串命中判定（带数字左边界保护）。
+   * 返回 short 是否为 long 的连续片段，且不是更长数字串的尾部。
+   * 例：substringHit('301教室','1教') = false（'1教' 是 '301' 的尾巴，不是独立地点）；
+   *     substringHit('图书馆三楼自习室','图书馆') = true。
+   */
+  function substringHit(long, short) {
+    if (!long || !short || short.length < 2) return false;
+    const idx = long.indexOf(short);
+    if (idx === -1) return false;
+    // 短串以数字开头且在长串中前一个字符也是数字 → 是数字串的一部分，不算地点。
+    if (/^[0-9]/.test(short) && idx > 0 && /[0-9]/.test(long.charAt(idx - 1))) return false;
+    return true;
+  }
+
   // ---------- 2. 别名表（规则无法推导的叫法） ----------
   // canonical key 用归一化后的形式书写，避免运行时再翻译。
   const LOCATION_ALIASES = {
@@ -311,11 +326,13 @@
 
     // 普通关键词：双向子串包含。正向（文本含查询）保留原 includes 语义；
     // 反向（查询含文本）覆盖"用户输完整地点、启事只写简称/片段"的情况，
-    // 例如查询"图书馆三楼自习室"命中文本"图书馆"，查询"万林艺术馆"命中"艺术楼"之外的
-    // 直写地点。两侧都要求长度 > 1，单字符不参与，避免"一 / 的"泛字误伤。
-    // 已知地点键的情况上面已提前返回，不会走到这里，故不会破坏"一教 ✗ 301教室"。
-    if (nk.length > 1 && nt.indexOf(nk) !== -1) return true;
-    if (nt.length > 1 && nk.indexOf(nt) !== -1) return true;
+    // 例如查询"图书馆三楼自习室"命中文本"图书馆"。
+    // 两侧都要求长度 > 1，单字符不参与，避免"一 / 的"泛字误伤。
+    // 数字边界：normalize('信息学部一教')='1教'，若不加保护，反向包含会让"301教室"
+    // 里的尾串"1教"误命中一教。与 tokens() 的数字左边界同策：短串以数字开头且
+    // 在长串中前一字符也是数字时，视为数字串的一部分，不算地点片段。
+    if (substringHit(nt, nk)) return true;
+    if (substringHit(nk, nt)) return true;
     return false;
   }
 
