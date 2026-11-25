@@ -181,7 +181,13 @@
                     </div>
                     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                         <div>
-                            <div class="text-xs text-slate-500 mb-2">失物热力分布（武汉大学 · 真实地图 · 圆点数字为该区域启事数）</div>
+                            <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+                                <span class="text-xs text-slate-500">失物热力分布（武汉大学 · 真实地图 · 徽章数字为该区域启事数）</span>
+                                <span class="inline-flex items-center gap-2 text-xs text-slate-500 heat-legend">
+                                    <span class="heat-legend-bar"></span>
+                                    <span>稀疏</span><span>一般</span><span>集中</span><span>高发</span>
+                                </span>
+                            </div>
                             <div id="adminHeatmap" class="campus-map-wrap w-full rounded-lg" style="border:2px solid var(--ink);overflow:hidden;min-height:420px;background:#F4EDDF"></div>
                             <div id="adminHeatNotice" class="hidden mt-2 px-3 py-2 rounded-lg border-2 border-amber-200 bg-amber-50 text-amber-800 text-xs leading-relaxed">
                                 <i class="fa fa-info-circle mr-1"></i><span id="adminHeatNoticeText"></span>
@@ -731,17 +737,38 @@
         const pts = window.CampusMapGL && window.CampusMapGL.aggregateHeatPoints
             ? window.CampusMapGL.aggregateHeatPoints(geo)
             : geo.map(i => ({ lng: i.lng, lat: i.lat, count: 1 }));
+        // 与页面一致的密度色阶徽章：低密度青绿、高密度玫红，外晕 + 渐变圆 + 计数徽标。
+        const HEAT_STOPS = (window.CampusMapGL && window.CampusMapGL.HEAT_STOPS) || [
+            { main: '#0E9F8E', light: '#5EEAD4', dark: '#0B6E63' },
+            { main: '#EAB308', light: '#FDE047', dark: '#A16207' },
+            { main: '#EA580C', light: '#FDBA74', dark: '#9A3412' },
+            { main: '#E11D48', light: '#FDA4AF', dark: '#9F1239' }
+        ];
+        const heatStop = (window.CampusMapGL && window.CampusMapGL.heatStop) || function (n) {
+            return HEAT_STOPS[n >= 7 ? 3 : (n >= 5 ? 2 : (n >= 3 ? 1 : 0))];
+        };
         pts.forEach(p => {
             const x = px(p.lng), y = py(p.lat);
-            const r = 16 + Math.min(p.count, 12) * 5;
-            const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-            g.addColorStop(0, 'rgba(192,57,43,0.55)');
-            g.addColorStop(1, 'rgba(192,57,43,0)');
-            ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
-            ctx.fillStyle = '#C0392B'; ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI * 2); ctx.fill();
-            ctx.fillStyle = '#20304F'; ctx.font = 'bold 12px sans-serif';
-            ctx.fillText(String(p.count), x + 7, y - 6);
+            const stop = heatStop(p.count);
+            const halo = 20 + Math.min(p.count, 12) * 4;
+            const core = 9 + Math.min(p.count, 8) * 1.2;
+            // 外晕
+            const g = ctx.createRadialGradient(x, y, 0, x, y, halo);
+            g.addColorStop(0, stop.glow || stop.main); g.addColorStop(1, 'rgba(0,0,0,0)');
+            ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, halo, 0, Math.PI * 2); ctx.fill();
+            // 渐变实心圆（模拟径向高光）
+            const cg = ctx.createRadialGradient(x - core * 0.3, y - core * 0.3, 1, x, y, core);
+            cg.addColorStop(0, stop.light); cg.addColorStop(0.6, stop.main); cg.addColorStop(1, stop.dark);
+            ctx.fillStyle = cg; ctx.beginPath(); ctx.arc(x, y, core, 0, Math.PI * 2); ctx.fill();
+            ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.stroke();
+            // 计数徽标
+            const label = p.count >= 9 ? '9+' : String(p.count);
+            const badgeR = label.length > 1 ? 9 : 7;
+            ctx.fillStyle = 'rgba(32,48,79,0.78)'; ctx.beginPath(); ctx.arc(x, y, badgeR, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = '#ffffff'; ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText(label, x, y + 0.5);
         });
+        ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
         ctx.fillStyle = 'rgba(32,48,79,.85)'; ctx.font = 'bold 14px sans-serif';
         ctx.fillText('武汉大学 · 失物热力数据分布（经纬度网格聚合 · 不含底图）', 16, 30);
         ctx.fillStyle = '#20304F'; ctx.font = '12px sans-serif';

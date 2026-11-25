@@ -55,6 +55,22 @@ const HEAT_GRID_DEG = 0.0005;
 // 后端下发地图配置的接口（由 A 的部署侧实现；仓库内只有接口路径，没有 key）
 const MAP_CONFIG_ENDPOINT = '/api/map/config';
 
+// ===== 热力视觉：密度色阶 =====
+// 不再是单调的中心点 + 橙色圆圈：按聚合条数分 4 档，低密度冷色（青绿）、高密度暖色（玫红），
+// 每一档都带主色/亮色/暗色，供 SVG 径向渐变与标记徽章共用，保证 GL / SVG / 导出图视觉一致。
+const HEAT_STOPS = [
+  { key: 'low', name: '稀疏', main: '#0E9F8E', light: '#5EEAD4', dark: '#0B6E63', glow: 'rgba(14,159,142,0.16)' },
+  { key: 'mid', name: '一般', main: '#EAB308', light: '#FDE047', dark: '#A16207', glow: 'rgba(234,179,8,0.18)' },
+  { key: 'high', name: '集中', main: '#EA580C', light: '#FDBA74', dark: '#9A3412', glow: 'rgba(234,88,12,0.20)' },
+  { key: 'peak', name: '高发', main: '#E11D48', light: '#FDA4AF', dark: '#9F1239', glow: 'rgba(225,29,72,0.22)' }
+];
+// 按聚合条数取色阶档位（1-2 / 3-4 / 5-6 / 7+）
+function heatStop(count) {
+  const n = Number(count) || 1;
+  const idx = n >= 7 ? 3 : (n >= 5 ? 2 : (n >= 3 ? 1 : 0));
+  return HEAT_STOPS[idx];
+}
+
 function isFiniteNumber(v) {
   return v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v));
 }
@@ -285,7 +301,11 @@ function campusSvgPoint(svgEl, clientX, clientY) {
   return { x: Math.round(p.x), y: Math.round(p.y) };
 }
 
-/** SVG 模式的热力聚合圆（沿用原有视觉，但过滤无坐标项，避免 NaN 聚合） */
+/**
+ * SVG 模式的热力聚合徽章。
+ * 视觉：密度色阶外晕 + 径向渐变实心圆 + 顶部高光弧 + 白色计数徽标，取代单调橙色圆圈。
+ * 只用聚合网格中心（示意图坐标），不渲染单条启事精确坐标；保留 <circle> 供合规脚本校验。
+ */
 function renderSvgHeat(overlay, items) {
   if (!overlay) return 0;
   const agg = new Map();
@@ -297,15 +317,33 @@ function renderSvgHeat(overlay, items) {
     p.n++;
     if (i.type === 'lost') p.lost++; else p.found++;
   });
-  overlay.innerHTML = Array.from(agg.values()).map(function (p) {
-    const r = 16 + Math.min(p.n, 8) * 6;
-    const color = p.found > 0 && p.lost === 0 ? '#10B981' : (p.lost > 0 && p.found === 0 ? '#EF4444' : '#F59E0B');
+
+  const stops = HEAT_STOPS;
+  const defs = `<defs>${stops.map(function (s, si) {
+    return `<radialGradient id="heatG${si}" cx="34%" cy="28%" r="76%">
+      <stop offset="0%" stop-color="${s.light}"/><stop offset="55%" stop-color="${s.main}"/><stop offset="100%" stop-color="${s.dark}"/>
+    </radialGradient>`;
+  }).join('')}</defs>`;
+
+  const marks = Array.from(agg.values()).map(function (p) {
+    const stop = heatStop(p.n);
+    const si = Math.max(0, stops.indexOf(stop));
+    const halo = 26 + Math.min(p.n, 10) * 4;   // 外晕半径随密度增大
+    const core = 12 + Math.min(p.n, 8) * 1.6;  // 实心圆半径
+    const label = p.n >= 9 ? '9+' : String(p.n);
+    const badgeR = label.length > 1 ? 12 : 9;
     return `<g>
-      <circle cx="${p.x}" cy="${p.y}" r="${r}" fill="${color}" opacity="0.18"/>
-      <circle cx="${p.x}" cy="${p.y}" r="${Math.max(5, Math.round(r / 3))}" fill="${color}" stroke="#ffffff" stroke-width="2.5"/>
-      <text x="${p.x}" y="${p.y - r - 6}" text-anchor="middle" font-size="17" font-weight="700" fill="#334155">${p.n}</text>
+      <circle cx="${p.x}" cy="${p.y}" r="${halo}" fill="${stop.main}" opacity="0.14"/>
+      <circle cx="${p.x}" cy="${p.y}" r="${halo * 0.72}" fill="${stop.main}" opacity="0.16"/>
+      <circle cx="${p.x + 1}" cy="${p.y + 2}" r="${core}" fill="#20304F" opacity="0.22"/>
+      <circle cx="${p.x}" cy="${p.y}" r="${core}" fill="url(#heatG${si})" stroke="#ffffff" stroke-width="2.6"/>
+      <path d="M ${p.x - core * 0.62} ${p.y - core * 0.4} A ${core * 0.78} ${core * 0.78} 0 0 1 ${p.x + core * 0.5} ${p.y - core * 0.62}"
+        fill="none" stroke="#ffffff" stroke-opacity="0.5" stroke-width="2" stroke-linecap="round"/>
+      <circle cx="${p.x}" cy="${p.y}" r="${badgeR}" fill="#20304F" opacity="0.72"/>
+      <text x="${p.x}" y="${p.y + 4.5}" text-anchor="middle" font-family="Arial,sans-serif" font-size="12" font-weight="800" fill="#ffffff">${label}</text>
     </g>`;
   }).join('');
+  overlay.innerHTML = defs + marks;
   return agg.size;
 }
 
@@ -374,23 +412,35 @@ function renderSvgHeat(overlay, items) {
     '<circle cx="13" cy="13" r="3" fill="#ffffff"/></svg>';
 
   /**
-   * 聚合计数标记：把该网格的启事条数直接画进内联 SVG，
-   * 不依赖 SDK 的 label/content 渲染，断网降级时也能一眼看到分布。
-   * 位置用聚合网格中心（已模糊到 ~50m），不是单条启事精确坐标。
+   * 聚合计数徽章：密度色阶外晕 + 径向渐变实心圆 + 顶部高光 + 深色计数徽标。
+   * 取代单调的「橙色实心圆 + 数字」，低密度冷色、高密度暖色，一眼分辨热点。
+   * 不依赖 SDK 的 label/content，位置用聚合网格中心（已模糊到 ~50m）。
    */
   function heatPinSvg(n) {
     const count = Math.max(1, Number(n) || 1);
     const label = count >= 9 ? '9+' : String(count);
-    const color = count >= 5 ? '#C0392B' : (count >= 3 ? '#D68910' : '#2E7D6B');
-    const r = 12 + Math.min(count, 6) * 1.2;
-    const size = Math.ceil(r * 2 + 8);
+    const stop = heatStop(count);
+    const size = 48;
     const c = size / 2;
+    const halo = 22;
+    const core = 15 + Math.min(count, 6) * 0.6;
+    const badgeR = label.length > 1 ? 12 : 10;
     const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + size + '" height="' + size +
       '" viewBox="0 0 ' + size + ' ' + size + '">' +
-      '<circle cx="' + c + '" cy="' + c + '" r="' + r + '" fill="' + color +
-      '" fill-opacity="0.92" stroke="#ffffff" stroke-width="2.5"/>' +
-      '<text x="' + c + '" y="' + (c + 4) + '" text-anchor="middle" font-family="Arial,sans-serif" ' +
-      'font-size="12" font-weight="700" fill="#ffffff">' + label + '</text></svg>';
+      '<defs><radialGradient id="g" cx="34%" cy="28%" r="76%">' +
+      '<stop offset="0%" stop-color="' + stop.light + '"/>' +
+      '<stop offset="55%" stop-color="' + stop.main + '"/>' +
+      '<stop offset="100%" stop-color="' + stop.dark + '"/></radialGradient></defs>' +
+      '<circle cx="' + c + '" cy="' + c + '" r="' + halo + '" fill="' + stop.main + '" fill-opacity="0.14"/>' +
+      '<circle cx="' + c + '" cy="' + c + '" r="' + (halo * 0.72) + '" fill="' + stop.main + '" fill-opacity="0.18"/>' +
+      '<circle cx="' + (c + 1) + '" cy="' + (c + 2) + '" r="' + core + '" fill="#20304F" fill-opacity="0.22"/>' +
+      '<circle cx="' + c + '" cy="' + c + '" r="' + core + '" fill="url(#g)" stroke="#ffffff" stroke-width="2.6"/>' +
+      '<path d="M ' + (c - core * 0.62) + ' ' + (c - core * 0.4) +
+      ' A ' + (core * 0.78) + ' ' + (core * 0.78) + ' 0 0 1 ' + (c + core * 0.5) + ' ' + (c - core * 0.62) +
+      '" fill="none" stroke="#ffffff" stroke-opacity="0.5" stroke-width="2" stroke-linecap="round"/>' +
+      '<circle cx="' + c + '" cy="' + c + '" r="' + badgeR + '" fill="#20304F" fill-opacity="0.72"/>' +
+      '<text x="' + c + '" y="' + (c + 4.5) + '" text-anchor="middle" font-family="Arial,sans-serif" ' +
+      'font-size="13" font-weight="800" fill="#ffffff">' + label + '</text></svg>';
     return { size: size, src: 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg) };
   }
 
@@ -550,12 +600,14 @@ function renderSvgHeat(overlay, items) {
         // 渐变起点给一点可见度，稀疏数据也能看到淡淡的热力斑。
         const heat = new T.visualization.Heat({
           map: map,
-          radius: 30,
+          radius: 34,
           max: 6,
           min: 0,
+          // 冷到暖的 5 档色带：稀疏青蓝 -> 一般黄 -> 集中橙 -> 高发玫红，
+          // 与离散计数徽章的密度色阶语义一致，热区层次更丰富。
           gradientColor: {
-            0.1: 'rgba(59,130,246,0.28)', 0.4: '#3B82F6',
-            0.7: '#F59E0B', 1: '#EF4444'
+            0.1: 'rgba(14,159,142,0.20)', 0.3: '#0E9F8E',
+            0.55: '#EAB308', 0.8: '#EA580C', 1: '#E11D48'
           }
         });
         handle.heat = heat;
@@ -629,6 +681,8 @@ function renderSvgHeat(overlay, items) {
     toHeatData: toHeatData,
     buildPublishCoords: buildPublishCoords,
     renderSvgHeat: renderSvgHeat,
+    HEAT_STOPS: HEAT_STOPS,
+    heatStop: heatStop,
     MAP_GL_HEIGHT: MAP_GL_HEIGHT,
     MAP_CONFIG_ENDPOINT: MAP_CONFIG_ENDPOINT
   };
@@ -657,6 +711,8 @@ if (typeof module !== 'undefined' && module.exports) {
     renderSvgHeat: renderSvgHeat,
     campusMapMarkup: campusMapMarkup,
     campusZoneAt: campusZoneAt,
-    isChinaGcj02: isChinaGcj02
+    isChinaGcj02: isChinaGcj02,
+    HEAT_STOPS: HEAT_STOPS,
+    heatStop: heatStop
   };
 }

@@ -503,3 +503,11 @@ input:-webkit-autofill {
 .campus-zone rect { transition: filter .15s ease, stroke .15s ease; }
 .campus-zone:hover rect { filter: brightness(0.96); stroke:#3B82F6; }
 .campus-zone text { pointer-events:none; user-select:none; }
+
+/* ===== 热力密度色阶图例（网页端公开页 / 管理端共用） ===== */
+.heat-legend { display:inline-flex; align-items:center; gap:6px; white-space:nowrap; }
+.heat-legend-bar {
+    display:inline-block; width:96px; height:10px; border-radius:6px; margin-right:2px;
+    border:1px solid rgba(32,48,79,.25);
+    background:linear-gradient(90deg, #0E9F8E 0%, #EAB308 38%, #EA580C 70%, #E11D48 100%);
+}
