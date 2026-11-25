@@ -149,17 +149,28 @@ function loadModule(ctx) {
 }
 
 function fakeTMap() {
-    const calls = { heatData: null, clickHandler: null, geometries: null, geoCalls: 0 };
-    function Heat(cfg) { this.cfg = cfg; this.setData = function (d) { calls.heatData = d; }; this.setMap = function () { }; }
-    function Map(canvas, cfg) { this.canvas = canvas; this.cfg = cfg; this.on = function (ev, cb) { if (ev === 'click') calls.clickHandler = cb; }; }
+    const calls = { heatData: null, heatMax: null, clickHandler: null, geometries: null, geoCalls: 0, fitBounds: null };
+    function Heat(cfg) {
+        this.cfg = cfg;
+        this.setData = function (d) { calls.heatData = d; };
+        this.setMax = function (m) { calls.heatMax = m; };
+        this.setMap = function () { };
+    }
+    function Map(canvas, cfg) {
+        this.canvas = canvas; this.cfg = cfg;
+        this.on = function (ev, cb) { if (ev === 'click') calls.clickHandler = cb; };
+        this.fitBounds = function (b, o) { calls.fitBounds = { b: b, o: o }; };
+    }
     function LatLng(lat, lng) { this.lat = lat; this.lng = lng; this.getLat = function () { return lat; }; this.getLng = function () { return lng; }; }
+    function LatLngBounds(sw, ne) { this.sw = sw; this.ne = ne; }
     function MultiMarker(cfg) { this.cfg = cfg; this.updateGeometries = function (g) { calls.geometries = g; }; }
     function MarkerStyle(cfg) { this.cfg = cfg; }
     function Geocoder() { this.getAddress = function () { calls.geoCalls++; return Promise.resolve({ result: { address: '图书馆' } }); }; }
     return {
         calls: calls,
         TMap: {
-            Map: Map, LatLng: LatLng, MultiMarker: MultiMarker, MarkerStyle: MarkerStyle,
+            Map: Map, LatLng: LatLng, LatLngBounds: LatLngBounds,
+            MultiMarker: MultiMarker, MarkerStyle: MarkerStyle,
             visualization: { Heat: Heat }, service: { Geocoder: Geocoder }
         }
     };
@@ -232,6 +243,21 @@ const noFetch = async function () { return { ok: false, status: 404, json: async
         check('热力层 setData 收到聚合数据', cnt === 1 && Array.isArray(fake.calls.heatData) && fake.calls.heatData.length === 1);
         check('聚合数据不含单条精确坐标或 id', !/id|114\.36012/.test(JSON.stringify(fake.calls.heatData)), JSON.stringify(fake.calls.heatData));
         check('热力层 setData 格式为 {lat,lng,count}', Object.keys(fake.calls.heatData[0]).sort().join(',') === 'count,lat,lng');
+        check('热力上限按峰值动态调整', fake.calls.heatMax === 3, String(fake.calls.heatMax));
+        check('真实地图推送离散计数标记（不是只有热力层）',
+            Array.isArray(fake.calls.geometries) && fake.calls.geometries.length === 1 &&
+            /^n\d$/.test(fake.calls.geometries[0].styleId), JSON.stringify(fake.calls.geometries));
+        check('计数标记位置为聚合中心（无单条精确坐标）',
+            !/114\.36012|30\.53012/.test(JSON.stringify(fake.calls.geometries)),
+            JSON.stringify(fake.calls.geometries));
+        // overview 模式：视野自动纳入全部点
+        const ov = fakeTMap();
+        const ovEnv = makeSandbox({ fetch: okFetch, TMap: ov.TMap });
+        const ovGL = loadModule(ovEnv.sandbox);
+        const ovHandle = await ovGL.mount(ovEnv.container, { overview: true });
+        ovHandle.update(items);
+        check('overview 模式自动 fitBounds 纳入全部点', ov.calls.fitBounds && ov.calls.fitBounds.b && ov.calls.fitBounds.b.sw,
+            JSON.stringify(ov.calls.fitBounds && ov.calls.fitBounds.b));
     }
 
     // B5: 发布页选点 -> 双写 lng/lat + mapX/mapY，地点文字走 service 类
@@ -289,6 +315,9 @@ const noFetch = async function () { return { ok: false, status: 404, json: async
     check('坐标系标注 GCJ-02 且不做 WGS-84 转换', /GCJ-02/.test(mapSrc) && !/WGS-?84\s*(?:to|2|=>|转)/i.test(mapSrc));
     check('地图容器固定高度常量存在', /MAP_GL_HEIGHT/.test(mapSrc) && /canvas\.style\.height/.test(mapSrc));
     check('热力层只做聚合（setData 前先 aggregate）', /aggregateHeatPoints\(normalizeHeatItems/.test(mapSrc));
+    check('真实地图有离散计数标记（圆点+数字，不只靠透明热力斑）', /buildHeatMarkerStyles/.test(mapSrc) && /pinLayer\.updateGeometries/.test(mapSrc));
+    check('热力上限按峰值动态调整（不写死 max=60 抹平数据）', /heat\.setMax/.test(mapSrc));
+    check('视野自适应只在 overview 模式启用（公开页不被重置）', /opts\.overview === true && pts\.length && canFitBounds/.test(mapSrc) && /overview:\s*true/.test(adminSrc));
     check('降级链路覆盖多种失败原因', (mapSrc.match(/return fallback\(/g) || []).length >= 6);
     check('自绘 SVG 降级方案保留（未整套删除）', /function campusMapMarkup/.test(mapSrc) && /campusMapMarkup\(\)/.test(mapSrc));
 

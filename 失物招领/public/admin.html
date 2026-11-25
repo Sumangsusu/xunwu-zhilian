@@ -181,7 +181,7 @@
                     </div>
                     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                         <div>
-                            <div class="text-xs text-slate-500 mb-2">失物热力分布（武汉大学 · 真实地图）</div>
+                            <div class="text-xs text-slate-500 mb-2">失物热力分布（武汉大学 · 真实地图 · 圆点数字为该区域启事数）</div>
                             <div id="adminHeatmap" class="campus-map-wrap w-full rounded-lg" style="border:2px solid var(--ink);overflow:hidden;min-height:420px;background:#F4EDDF"></div>
                             <div id="adminHeatNotice" class="hidden mt-2 px-3 py-2 rounded-lg border-2 border-amber-200 bg-amber-50 text-amber-800 text-xs leading-relaxed">
                                 <i class="fa fa-info-circle mr-1"></i><span id="adminHeatNoticeText"></span>
@@ -688,6 +688,7 @@
                 const hasGeo = items.some(i => i.lng != null && i.lat != null);
                 window.CampusMapGL.mount(host, {
                     forceSvg: !hasGeo,
+                    overview: true, // 管理端：自动把全部聚合点纳入视野，便于一览失物分布
                     onMode: onAdminHeatMode
                 }).catch(function () { /* 同步兜底已渲染 SVG */ });
             }
