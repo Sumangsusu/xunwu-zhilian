@@ -78,5 +78,46 @@ check('提示如实列出填入字段', js.indexOf("'已填入：' + names") >= 
 check('填入后滚动到字段', js.indexOf('scrollIntoView') >= 0);
 check('后端两个识别接口都在', server.indexOf("app.post('/api/ocr'") >= 0 && server.indexOf("app.post('/api/recognize'") >= 0);
 
+// 8. 乱码拒填：OCR 在物品照片上识别出的乱码不得进入任何公开字段（issue: 00'GT）
+check('乱码 00\'GT 判定为不可信', M.isCredibleText("00'GT") === false);
+check('乱码不进描述草稿', M.composeDraft('', "00'GT").changed === false);
+check('乱码不进可信文字行', M.credibleLines("00'GT\n￥#@").length === 0);
+check('可信中文仍保留', M.isCredibleText('黑色双肩包') === true && M.isCredibleText('钥匙') === true);
+check('英文物品词仍保留', M.isCredibleText('Apple Watch Ultra') === true);
+const garbageOnly = M.composeFormDraft("00'GT", null, {
+    title: '', category: '', color: '', features: '', description: ''
+});
+check('纯乱码时一个字段都不填', garbageOnly.filled.length === 0, JSON.stringify(garbageOnly.filled));
+
+// 9. 截图场景：乱码 + 物品识别成功 -> 填入模型给出的可靠中文名，描述不被乱码污染
+const rescued = M.composeFormDraft("00'GT", {
+    type: '手表', category: '电子数码', color: '银色', rejected: false, candidates: []
+}, { title: '', category: '', color: '', features: '', description: '' });
+check('乱码场景由物品识别补名称', rescued.values.title === '手表' && rescued.values.category === '电子数码', JSON.stringify(rescued.values));
+check('乱码不污染描述', rescued.values.description === '', JSON.stringify(rescued.values.description));
+const bothFail = M.composeFormDraft("00'GT", { type: '未能确定', rejected: true, color: '未知' }, {
+    title: '', category: '', color: '', features: '', description: ''
+});
+check('乱码且识别失败时留空待手填', bothFail.filled.length === 0, JSON.stringify(bothFail.filled));
+
+// 10. 多品类物品识别同样可行：各类物品都能从识别结果填入名称/分类/主色
+const CATEGORIES = [
+    ['背包', '箱包类', '黑色'], ['手表', '电子数码', '白色'], ['手机', '电子数码', '黑色'],
+    ['耳机', '电子数码', '白色'], ['钥匙', '钥匙', '银色'], ['水杯', '其他物品', '蓝色'],
+    ['笔记本', '其他物品', '红色'], ['钱包', '箱包类', '棕色'], ['眼镜', '衣物配饰', '黑色'],
+    ['雨伞', '其他物品', '蓝色']
+];
+CATEGORIES.forEach(function (c) {
+    const r = M.composeFormDraft(c[0], {
+        type: c[0], category: c[1], color: c[2], rejected: false, candidates: []
+    }, { title: '', category: '', color: '', features: '', description: '' });
+    check('物品识别-' + c[0], r.values.title === c[0] && r.values.category === c[1] && r.values.color === c[2], JSON.stringify(r.values));
+});
+
+// 11. 图片格式统一：WebP/GIF/PNG 转 JPEG 后才发 /api/recognize（后端只解 JPEG/PNG）
+check('存在 toJpegDataUrl 转码函数', typeof M.toJpegDataUrl === 'function');
+check('识别请求前先经过 toJpegDataUrl', /toJpegDataUrl\(dataUrl\)[\s\S]{0,120}RECOGNIZE_ENDPOINT/.test(js));
+check('转码目标为 image/jpeg', js.indexOf("canvas.toDataURL('image/jpeg', 0.9)") >= 0);
+
 console.log('\n结果：' + pass + '/' + total + ' 通过');
 process.exit(pass === total ? 0 : 1);

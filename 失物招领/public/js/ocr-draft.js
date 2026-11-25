@@ -27,6 +27,13 @@
         { value: '钥匙', words: ['钥匙', '门禁卡', '车钥匙'] }
     ];
     var FEATURE_HINTS = ['皮质', '金属', '陶瓷', '磨损', '划痕', '全新', '表带', '对折', '拉链', '按键', '屏幕', '挂绳', '反光'];
+    // 物品识别给出的中文 type 优先于 OCR 文本；OCR 文字只有「可信」时才兜底填名称。
+    // 这些英文词用于判断一段 OCR 文本是否真的在描述物品，而不是表盘/包装上的乱码。
+    var EN_ITEM_WORDS = ['phone', 'iphone', 'ipad', 'ipod', 'watch', 'airpods', 'headphone',
+        'earphone', 'earbuds', 'laptop', 'keyboard', 'mouse', 'camera', 'wallet', 'backpack',
+        'handbag', 'purse', 'book', 'notebook', 'umbrella', 'bottle', 'cup', 'mug', 'glasses',
+        'sunglasses', 'key', 'card', 'pen', 'ruler', 'scissors', 'lamp', 'lock', 'battery'];
+    var CN_CHARS = /[\u4e00-\u9fff]/;
     var FIELD_LABELS = {
         title: '物品名称', category: '物品分类', color: '主色',
         features: '特征标签', description: '详细描述'
@@ -48,7 +55,7 @@
      */
     function composeDraft(current, recognized) {
         var cur = String(current == null ? '' : current);
-        var add = sanitize(recognized);
+        var add = credibleLines(recognized);
         if (!add) return { text: cur, changed: false };
         if (!cur.trim()) return { text: add, changed: true };
         return { text: cur.replace(/\s+$/, '') + '\n' + add, changed: true };
@@ -56,9 +63,39 @@
 
     function clean(v) { return String(v == null ? '' : v).trim(); }
 
+    /** 是否含有意义的中文（至少两个汉字，排除单字噪声）。 */
+    function hasMeaningfulChinese(s) {
+        return (String(s || '').match(/[\u4e00-\u9fff]/g) || []).length >= 2;
+    }
+
+    /**
+     * 判断一段 OCR 文本是否「可信到可以填进公开草稿」。
+     * OCR 在物品照片上常把包装、表盘、logo 识别成 `00'GT` 这类乱码：
+     * 无中文、无已知英文物品词、字母数字混杂且没有可读词 -> 一律判为噪声，不填入。
+     */
+    function isCredibleText(text) {
+        var s = clean(text);
+        if (!s) return false;
+        if (s.indexOf('已隐藏') >= 0) return false;
+        if (hasMeaningfulChinese(s)) return true;
+        var lower = s.toLowerCase();
+        // 命中已知物品英文词，或存在 3 个以上连续字母组成的英文单词
+        if (EN_ITEM_WORDS.some(function (w) { return lower.indexOf(w) >= 0; })) return true;
+        return /[a-z]{3,}/i.test(s);
+    }
+
+    /** 只保留可信的 OCR 行，供描述字段使用；整段乱码时返回空串。 */
+    function credibleLines(text) {
+        var raw = sanitize(text);
+        if (!raw) return '';
+        return raw.split(/\r?\n/).map(clean).filter(function (line) {
+            return line && isCredibleText(line);
+        }).join('\n');
+    }
+
     /**
      * 只从文字里提取「低风险、可核对」的草稿字段，绝不覆盖用户已填内容。
-     * 名称取第一段像物品描述的文字（纯数字/敏感占位符一律跳过）。
+     * 名称取第一段可信的物品描述文字；乱码/纯数字/敏感占位符一律跳过。
      */
     function parseFieldsFromText(text, current) {
         var out = {
@@ -68,7 +105,7 @@
             features: clean(current && current.features),
             description: clean(current && current.description)
         };
-        var raw = sanitize(text);
+        var raw = credibleLines(text);
         if (!raw) return out;
         var lower = raw.toLowerCase();
 
@@ -90,9 +127,8 @@
         }
         if (!out.title) {
             var lines = raw.split(/[\n，,。；;]+/).map(clean).filter(function (s) {
-                return s.length >= 2 && s.length <= 24 &&
-                    !/^[0-9.,:：\s]+$/.test(s) &&
-                    s.indexOf('已隐藏') < 0 && s.indexOf('识别') < 0;
+                return s.length >= 2 && s.length <= 24 && isCredibleText(s) &&
+                    s.indexOf('识别') < 0;
             });
             if (lines.length) out.title = lines[0];
         }
@@ -138,17 +174,23 @@
             features: clean(current && current.features),
             description: textDraft.text
         };
-        var values = parseFieldsFromText(text, before);
-
+        // 物品识别给出的中文物品名比 OCR 文字更可靠，先用它填结构化字段；
+        // OCR 文字仅在识别没填上的字段里兜底，避免乱码或误识别的英文占据名称。
+        var values = {
+            title: before.title, category: before.category, color: before.color,
+            features: before.features, description: before.description
+        };
         var normalized = normalizeRecognition(recognition);
         if (normalized && root.RecognizeDraft && typeof root.RecognizeDraft.build === 'function') {
             var draft = root.RecognizeDraft.build(normalized);
-            if (draft) {
-                values = root.RecognizeDraft.apply(draft, values);
-                // 描述优先保留 OCR 原文，物品识别只补结构化字段
-                values.description = textDraft.text;
-            }
+            if (draft) values = root.RecognizeDraft.apply(draft, values);
         }
+        var fromText = parseFieldsFromText(text, values);
+        ['title', 'category', 'color', 'features'].forEach(function (k) {
+            if (!clean(values[k]) && clean(fromText[k])) values[k] = fromText[k];
+        });
+        // 描述以可信 OCR 文字为准，物品识别只补结构化字段
+        values.description = textDraft.text;
 
         var filled = [];
         Object.keys(FIELD_LABELS).forEach(function (k) {
@@ -185,6 +227,36 @@
             reader.onload = function () { resolve(String(reader.result || '')); };
             reader.onerror = function () { reject(new Error('图片读取失败，请重新选择')); };
             reader.readAsDataURL(file);
+        });
+    }
+
+    /**
+     * /api/recognize 只接受 JPEG/PNG（后端解码器限制），而上传可能是 WebP/GIF。
+     * 用 canvas 统一重编码为 JPEG，保证「其他种类的图片」也能触发物品识别，
+     * 而不是静默失败导致分类/主色/特征全空。已是 JPEG/PNG 则原样返回。
+     */
+    function toJpegDataUrl(dataUrl) {
+        return new Promise(function (resolve, reject) {
+            var s = String(dataUrl || '');
+            if (/^data:image\/(jpe?g|png);base64,/i.test(s)) return resolve(s);
+            if (!/^data:image\//i.test(s)) return reject(new Error('请先上传一张图片'));
+            var img = new Image();
+            img.onerror = function () { resolve(s); }; // 转换失败时回退原图，不阻断 OCR
+            img.onload = function () {
+                try {
+                    var canvas = document.createElement('canvas');
+                    canvas.width = img.naturalWidth || img.width;
+                    canvas.height = img.naturalHeight || img.height;
+                    var ctx = canvas.getContext('2d');
+                    ctx.fillStyle = '#ffffff'; // 透明区铺白，避免转 JPEG 后发黑
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    ctx.drawImage(img, 0, 0);
+                    resolve(canvas.toDataURL('image/jpeg', 0.9));
+                } catch (e) {
+                    resolve(s);
+                }
+            };
+            img.src = s;
         });
     }
 
@@ -253,8 +325,17 @@
                     };
                     var ocrPromise = fetch(base(ENDPOINT), options)
                         .then(function (resp) { return resp.json().catch(function () { return {}; }); });
-                    // 物品识别失败不影响文字识别，只用于补齐可见的结构化字段
-                    var recognizePromise = fetch(base(RECOGNIZE_ENDPOINT), options)
+                    // 物品识别只接受 JPEG/PNG：先把 WebP/GIF 等统一转码，保证各类图片都能识别。
+                    // 识别失败不影响文字识别，只用于补齐可见的结构化字段。
+                    var recognizePromise = toJpegDataUrl(dataUrl)
+                        .then(function (jpeg) {
+                            return fetch(base(RECOGNIZE_ENDPOINT), {
+                                method: 'POST',
+                                credentials: 'same-origin',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ image: jpeg })
+                            });
+                        })
                         .then(function (resp) { return resp.json().catch(function () { return {}; }); })
                         .then(function (data) { return data && data.success ? data.result : null; })
                         .catch(function () { return null; });
@@ -308,6 +389,9 @@
         RECOGNIZE_ENDPOINT: RECOGNIZE_ENDPOINT,
         sanitize: sanitize,
         composeDraft: composeDraft,
+        isCredibleText: isCredibleText,
+        credibleLines: credibleLines,
+        toJpegDataUrl: toJpegDataUrl,
         parseFieldsFromText: parseFieldsFromText,
         normalizeRecognition: normalizeRecognition,
         composeFormDraft: composeFormDraft,
