@@ -13,8 +13,24 @@
     'use strict';
 
     var ENDPOINT = '/api/ocr';
+    var RECOGNIZE_ENDPOINT = '/api/recognize';
     var MAX_BYTES = 5 * 1024 * 1024;
     var ALLOWED_TYPE = /^image\/(jpe?g|png|gif|webp)$/i;
+
+    // 与 recognize-draft.js / 发布页下拉框保持一致
+    var COLORS = ['黑色', '白色', '银色', '灰色', '红色', '蓝色', '棕色', '绿色', '黄色', '粉色', '紫色'];
+    var CATEGORY_HINTS = [
+        { value: '电子数码', words: ['手机', '耳机', '手表', '手环', '平板', '电脑', '笔记本', '键盘', '鼠标', '相机', '充电盒', 'airpods', 'iphone', 'ipad', 'watch'] },
+        { value: '证件文件', words: ['身份证', '学生证', '校园卡', '银行卡', '护照', '驾驶证', '准考证', '证件'] },
+        { value: '衣物配饰', words: ['外套', '衣服', '衬衫', '裤子', '裙子', '帽子', '围巾', '鞋子', '眼镜', '手表带'] },
+        { value: '箱包类', words: ['背包', '双肩包', '书包', '挎包', '钱包', '行李箱', '手提包'] },
+        { value: '钥匙', words: ['钥匙', '门禁卡', '车钥匙'] }
+    ];
+    var FEATURE_HINTS = ['皮质', '金属', '陶瓷', '磨损', '划痕', '全新', '表带', '对折', '拉链', '按键', '屏幕', '挂绳', '反光'];
+    var FIELD_LABELS = {
+        title: '物品名称', category: '物品分类', color: '主色',
+        features: '特征标签', description: '详细描述'
+    };
 
     /** 前端二次脱敏：即使后端返回异常内容，也不让敏感编号落进公开描述字段。 */
     function sanitize(text) {
@@ -36,6 +52,111 @@
         if (!add) return { text: cur, changed: false };
         if (!cur.trim()) return { text: add, changed: true };
         return { text: cur.replace(/\s+$/, '') + '\n' + add, changed: true };
+    }
+
+    function clean(v) { return String(v == null ? '' : v).trim(); }
+
+    /**
+     * 只从文字里提取「低风险、可核对」的草稿字段，绝不覆盖用户已填内容。
+     * 名称取第一段像物品描述的文字（纯数字/敏感占位符一律跳过）。
+     */
+    function parseFieldsFromText(text, current) {
+        var out = {
+            title: clean(current && current.title),
+            category: clean(current && current.category),
+            color: clean(current && current.color),
+            features: clean(current && current.features),
+            description: clean(current && current.description)
+        };
+        var raw = sanitize(text);
+        if (!raw) return out;
+        var lower = raw.toLowerCase();
+
+        if (!out.color) {
+            for (var i = 0; i < COLORS.length; i++) {
+                if (raw.indexOf(COLORS[i]) >= 0) { out.color = COLORS[i]; break; }
+            }
+        }
+        if (!out.category) {
+            var best = '', bestScore = 0;
+            CATEGORY_HINTS.forEach(function (group) {
+                var score = 0;
+                group.words.forEach(function (w) {
+                    if (lower.indexOf(w.toLowerCase()) >= 0) score++;
+                });
+                if (score > bestScore) { best = group.value; bestScore = score; }
+            });
+            if (best) out.category = best;
+        }
+        if (!out.title) {
+            var lines = raw.split(/[\n，,。；;]+/).map(clean).filter(function (s) {
+                return s.length >= 2 && s.length <= 24 &&
+                    !/^[0-9.,:：\s]+$/.test(s) &&
+                    s.indexOf('已隐藏') < 0 && s.indexOf('识别') < 0;
+            });
+            if (lines.length) out.title = lines[0];
+        }
+        if (!out.features) {
+            var found = FEATURE_HINTS.filter(function (w) { return raw.indexOf(w) >= 0; });
+            if (found.length) out.features = found.slice(0, 6).join('、');
+        }
+        return out;
+    }
+
+    /** 后端 /api/recognize 的返回 -> recognize-draft.js 能吃的识别结果。 */
+    function normalizeRecognition(result) {
+        if (!result || typeof result !== 'object') return null;
+        var type = clean(result.type);
+        var rejected = !!result.rejected || !type || type === '未能确定' || type.indexOf('识别失败') === 0;
+        var features = [];
+        if (!rejected) features.push(type);
+        (Array.isArray(result.candidates) ? result.candidates : []).forEach(function (c) {
+            var t = clean(c && c.type);
+            if (t && features.indexOf(t) < 0) features.push(t);
+        });
+        return {
+            type: rejected ? '' : type,
+            category: result.category,
+            color: result.color,
+            features: features,
+            modelError: rejected
+        };
+    }
+
+    /**
+     * 文字识别 + 物品识别 -> 发布页草稿。
+     * 先按文字提取，再用物品识别补齐仍为空的字段；描述始终以 OCR 原文为准。
+     * 返回 { values, filled }，filled 为实际新填入的字段名数组。
+     */
+    function composeFormDraft(text, recognition, current) {
+        var originalDesc = clean(current && current.description);
+        var textDraft = composeDraft(originalDesc, text);
+        var before = {
+            title: clean(current && current.title),
+            category: clean(current && current.category),
+            color: clean(current && current.color),
+            features: clean(current && current.features),
+            description: textDraft.text
+        };
+        var values = parseFieldsFromText(text, before);
+
+        var normalized = normalizeRecognition(recognition);
+        if (normalized && root.RecognizeDraft && typeof root.RecognizeDraft.build === 'function') {
+            var draft = root.RecognizeDraft.build(normalized);
+            if (draft) {
+                values = root.RecognizeDraft.apply(draft, values);
+                // 描述优先保留 OCR 原文，物品识别只补结构化字段
+                values.description = textDraft.text;
+            }
+        }
+
+        var filled = [];
+        Object.keys(FIELD_LABELS).forEach(function (k) {
+            if (clean(values[k]) && clean(values[k]) !== before[k]) filled.push(k);
+        });
+        // 描述可能原本就有内容，此时是在末尾追加，同样算「已填入」
+        if (textDraft.changed && filled.indexOf('description') < 0) filled.push('description');
+        return { values: values, filled: filled };
     }
 
     /** File -> data URL，先在浏览器侧做类型与体积校验，避免无谓上传。 */
@@ -79,6 +200,23 @@
         box.classList.remove('hidden');
     }
 
+    function valueOf(id) {
+        var el = document.getElementById(id);
+        return el ? el.value : '';
+    }
+
+    /** 填入后把第一个字段滚动到可视区，避免「提示说填了但页面看不到」。 */
+    function revealField(id) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        try {
+            if (typeof el.scrollIntoView === 'function') {
+                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+            if (typeof el.focus === 'function') el.focus({ preventScroll: true });
+        } catch (e) { /* 老浏览器不支持选项参数时静默降级 */ }
+    }
+
     function init() {
         var btn = document.getElementById('ocrDraftBtn');
         if (!btn || btn.dataset.ocrBound === '1') return;
@@ -93,7 +231,7 @@
             var label = btn.innerHTML;
             btn.disabled = true;
             btn.innerHTML = '<i class="fa fa-spinner fa-spin mr-1"></i>识别中…';
-            showNotice('正在识别图片中的文字，稍候即可填入描述草稿。', 'info');
+            showNotice('正在识别图片，稍候即可填入发布草稿。', 'info');
 
             var file = input && input.files && input.files[0];
             var source = file
@@ -106,26 +244,54 @@
                 .then(function (dataUrl) {
                     if (!dataUrl) throw new Error('请先上传一张物品照片');
                     // 统一站点基址，站点换到任意域名 / IP / 子路径都不会 404。
-                    var url = root.apiUrl ? root.apiUrl(ENDPOINT) : ENDPOINT;
-                    return fetch(url, {
+                    var base = root.apiUrl || function (p) { return p; };
+                    var options = {
                         method: 'POST',
                         credentials: 'same-origin',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ image: dataUrl })
-                    });
+                    };
+                    var ocrPromise = fetch(base(ENDPOINT), options)
+                        .then(function (resp) { return resp.json().catch(function () { return {}; }); });
+                    // 物品识别失败不影响文字识别，只用于补齐可见的结构化字段
+                    var recognizePromise = fetch(base(RECOGNIZE_ENDPOINT), options)
+                        .then(function (resp) { return resp.json().catch(function () { return {}; }); })
+                        .then(function (data) { return data && data.success ? data.result : null; })
+                        .catch(function () { return null; });
+                    return Promise.all([ocrPromise, recognizePromise]);
                 })
-                .then(function (resp) {
-                    return resp.json().catch(function () { return {}; });
-                })
-                .then(function (data) {
+                .then(function (results) {
+                    var data = results[0];
+                    var recognition = results[1];
                     if (!data || data.success !== true || !data.text) {
                         throw new Error((data && data.message) || '文字识别暂时不可用，请手动填写描述');
                     }
-                    var draft = composeDraft(desc.value, data.text);
-                    if (draft.changed) desc.value = draft.text;
-                    showNotice(draft.changed
-                        ? '已将识别文字填入描述草稿，请核对后再点「立即发布」；未发布前不会写入数据库。'
-                        : '未识别到可用文字，请手动填写描述。', 'info');
+                    // 描述以 OCR 原文追加不覆盖；其余字段只填空，不覆盖用户输入
+                    var current = {
+                        title: valueOf('itemTitle'),
+                        category: valueOf('itemCategory'),
+                        color: valueOf('itemColor'),
+                        features: valueOf('itemFeatures'),
+                        description: desc.value
+                    };
+                    var form = composeFormDraft(data.text, recognition, current);
+                    var ids = {
+                        title: 'itemTitle', category: 'itemCategory', color: 'itemColor',
+                        features: 'itemFeatures', description: 'itemDesc'
+                    };
+                    form.filled.forEach(function (k) {
+                        var el = document.getElementById(ids[k]);
+                        if (el) el.value = form.values[k];
+                    });
+                    desc.value = form.values.description;
+
+                    if (!form.filled.length) {
+                        showNotice('未识别到可填入的内容，请手动填写发布信息。', 'error');
+                        return;
+                    }
+                    var names = form.filled.map(function (k) { return FIELD_LABELS[k]; }).join('、');
+                    showNotice('已填入：' + names + '。请核对后再点「立即发布」；未发布前不会写入数据库。', 'info');
+                    revealField(ids[form.filled[0]]);
                 })
                 .catch(function (err) {
                     showNotice(err && err.message ? err.message : '文字识别暂时不可用，请手动填写描述。', 'error');
@@ -139,8 +305,12 @@
 
     var api = {
         ENDPOINT: ENDPOINT,
+        RECOGNIZE_ENDPOINT: RECOGNIZE_ENDPOINT,
         sanitize: sanitize,
         composeDraft: composeDraft,
+        parseFieldsFromText: parseFieldsFromText,
+        normalizeRecognition: normalizeRecognition,
+        composeFormDraft: composeFormDraft,
         fileToDataUrl: fileToDataUrl,
         init: init
     };
