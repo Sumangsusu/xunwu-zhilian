@@ -522,7 +522,22 @@ app.get('/api/items/:id', tryAuth, (req, res) => {
   const isOwner = req.user && req.user.username === item.publisher;
   const isAdmin = req.user && req.user.role === 'admin';
   if (isOwner || isAdmin) {
-    return res.json({ success: true, item });
+    // 发布者/管理员免答题，但详情弹窗的答题区渲染条件是 item.hasQuiz && item.contactMasked。
+    // mapItem 原始对象没有这两个字段，会导致卡片标记「需答题认领」却看不到题目。
+    // 这里补齐视图字段（保留完整联系方式与含答案题目），双端共用同一接口。
+    return res.json({
+      success: true,
+      item: {
+        ...item,
+        hasQuiz: Boolean(item.quiz && item.quiz.length),
+        contactMasked: Boolean(item.contact),
+        quizMaxAttempts: Number(item.quizAttempts) > 0
+          ? Number(item.quizAttempts)
+          : (item.quiz.some((q) => q.type === 'blank') ? 3 : 1),
+        quizState: { attempts: 0, unlocked: true },
+        ownerBypass: true
+      }
+    });
   }
   const view = publicItem(item);
   if (req.user && view.hasQuiz) {
