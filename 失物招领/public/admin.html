@@ -174,15 +174,20 @@
                                 <option value="bar">条形图</option>
                                 <option value="pie">饼状图</option>
                             </select>
-                            <button onclick="exportHeatmapPNG()" class="px-3 py-1.5 rounded-lg border-2 border-[var(--ink)] text-sm font-medium text-[var(--ink)] hover:bg-[var(--c-red)] hover:text-white transition-colors" style="background:var(--paper-card)"><i class="fa fa-download mr-1"></i>热力图 PNG</button>
+                            <button onclick="exportHeatmapPNG()" class="px-3 py-1.5 rounded-lg border-2 border-[var(--ink)] text-sm font-medium text-[var(--ink)] hover:bg-[var(--c-red)] hover:text-white transition-colors" style="background:var(--paper-card)"><i class="fa fa-download mr-1"></i>热力数据图 PNG</button>
                             <button onclick="exportChartPNG()" class="px-3 py-1.5 rounded-lg border-2 border-[var(--ink)] text-sm font-medium text-[var(--ink)] hover:bg-[var(--c-blue)] hover:text-white transition-colors" style="background:var(--paper-card)"><i class="fa fa-download mr-1"></i>统计图 PNG</button>
                             <button onclick="exportStatsCSV()" class="px-3 py-1.5 rounded-lg border-2 border-[var(--ink)] text-sm font-medium text-[var(--ink)] hover:bg-[var(--c-green)] hover:text-white transition-colors" style="background:var(--paper-card)"><i class="fa fa-file-excel-o mr-1"></i>明细 CSV</button>
                         </div>
                     </div>
                     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                         <div>
-                            <div class="text-xs text-slate-500 mb-2">失物热力分布（校园示意图 · 离线可导出）</div>
-                            <canvas id="heatmapCanvas" width="640" height="420" class="w-full rounded-lg" style="border:2px solid var(--ink);background:#F4EDDF"></canvas>
+                            <div class="text-xs text-slate-500 mb-2">失物热力分布（武汉大学 · 真实地图 · 圆点数字为该区域启事数）</div>
+                            <div id="adminHeatmap" class="campus-map-wrap w-full rounded-lg" style="border:2px solid var(--ink);overflow:hidden;min-height:420px;background:#F4EDDF"></div>
+                            <div id="adminHeatNotice" class="hidden mt-2 px-3 py-2 rounded-lg border-2 border-amber-200 bg-amber-50 text-amber-800 text-xs leading-relaxed">
+                                <i class="fa fa-info-circle mr-1"></i><span id="adminHeatNoticeText"></span>
+                            </div>
+                            <!-- 离屏画布：仅用于导出按经纬度聚合的数据分布图，不参与页面展示 -->
+                            <canvas id="heatmapExportCanvas" width="640" height="420" class="hidden"></canvas>
                         </div>
                         <div>
                             <div class="text-xs text-slate-500 mb-2">失物种类分布</div>
@@ -404,6 +409,7 @@
         </div>
     </div>
 
+<script src="js/campus-map.js"></script>
 <script>
     // app-base.js 提供统一站点基址；管理端不引入 common.js，这里单独兜底。
     if (typeof window.apiUrl !== 'function') {
@@ -626,59 +632,120 @@
         drawCategoryChart();
     }
 
+    // 管理端热力图复用与公开热力页同一套合规地图组件：
+    // 腾讯地图 GL 真实底图 + 官方热力层，中心为武汉大学；无 key / 断网 / 老数据无经纬度时降级示意图。
+    let adminHeatHandle = null;
+    let adminHeatMounted = false;
+
+    const ADMIN_HEAT_FALLBACK_TEXT = {
+        'legacy-data-no-lnglat': '当前启事尚无经纬度数据，已使用校内示意图热力图；新启事在地图上选点后会自动切换为真实地图。',
+        'no-config': '未配置地图服务，已使用校内示意图热力图。',
+        'config-unavailable': '地图服务接口不可用，已使用校内示意图热力图，数据正常。',
+        'sdk-unavailable': '地图组件加载失败或超时，已使用校内示意图热力图，数据正常。',
+        'visualization-missing': '热力图层未加载，已使用校内示意图热力图，数据正常。',
+        'sdk-incomplete': '地图组件不完整，已使用校内示意图热力图，数据正常。',
+        'map-init-failed': '地图初始化失败，已使用校内示意图热力图，数据正常。'
+    };
+
+    function adminHeatItems() {
+        const raw = (window.itemsData || []).filter(i =>
+            i.status === 'active' && (i.lng != null || i.mapX != null));
+        // 白名单过滤：联系方式 / 图片 / 描述 / 问答不进入前端全局对象
+        return window.CampusMapGL
+            ? window.CampusMapGL.normalizeHeatItems(raw)
+            : raw.map(i => ({ id: i.id, type: i.type, title: i.title, location: i.location,
+                date: i.date, lng: i.lng, lat: i.lat, mapX: i.mapX, mapY: i.mapY }));
+    }
+
+    function onAdminHeatMode(handle) {
+        adminHeatHandle = handle;
+        const notice = document.getElementById('adminHeatNotice');
+        const text = document.getElementById('adminHeatNoticeText');
+        if (notice && text) {
+            if (handle.mode === 'gl') {
+                notice.classList.add('hidden');
+            } else {
+                notice.classList.remove('hidden');
+                text.textContent = ADMIN_HEAT_FALLBACK_TEXT[handle.reason] ||
+                    '当前使用校内示意图热力图；热力点为聚合展示，不显示单条启事的精确坐标。';
+            }
+        }
+        if (typeof handle.update === 'function') handle.update(adminHeatItems());
+    }
+
     function drawHeatmap() {
-        const canvas = document.getElementById('heatmapCanvas');
+        const host = document.getElementById('adminHeatmap');
+        if (!host) return;
+        const items = adminHeatItems();
+        renderAdminHeatExport(items); // 导出图基于真实经纬度，与底图模式无关
+        if (window.CampusMapGL) {
+            if (adminHeatHandle && typeof adminHeatHandle.update === 'function') {
+                adminHeatHandle.update(items); // 刷新/改状态后只推数据，不重建地图
+                return;
+            }
+            if (!adminHeatMounted) {
+                adminHeatMounted = true;
+                const hasGeo = items.some(i => i.lng != null && i.lat != null);
+                window.CampusMapGL.mount(host, {
+                    forceSvg: !hasGeo,
+                    overview: true, // 管理端：自动把全部聚合点纳入视野，便于一览失物分布
+                    onMode: onAdminHeatMode
+                }).catch(function () { /* 同步兜底已渲染 SVG */ });
+            }
+        }
+        // 组件缺失时的最后兜底：给出可读提示，绝不白屏
+        if (!adminHeatHandle && !window.CampusMapGL) {
+            host.innerHTML = '<div style="height:420px;display:flex;align-items:center;justify-content:center;color:#6B6A63">地图组件未加载，数据请参考下方统计与明细导出</div>';
+        }
+    }
+
+    // 离屏数据图：按真实经纬度网格聚合投影，不含第三方底图，避免跨域瓦片污染 canvas。
+    function renderAdminHeatExport(items) {
+        const canvas = document.getElementById('heatmapExportCanvas');
         if (!canvas) return;
         const ctx = canvas.getContext('2d');
         const W = canvas.width, H = canvas.height;
-        ctx.fillStyle = '#F4EDDF';
-        ctx.fillRect(0, 0, W, H);
+        ctx.fillStyle = '#F4EDDF'; ctx.fillRect(0, 0, W, H);
+        // 与页面热力图一致：老启事只有示意图坐标时折算为区域级近似经纬度，
+        // 否则导出图会只剩个别有实测坐标的点，和页面看到的分布对不上。
+        const withGeo = window.CampusMapGL && window.CampusMapGL.withApproxGeo
+            ? window.CampusMapGL.withApproxGeo(items || [])
+            : (items || []);
+        const geo = withGeo.filter(i => i.lng != null && i.lat != null);
+        if (!geo.length) {
+            ctx.fillStyle = '#6B6A63'; ctx.font = '16px sans-serif';
+            ctx.fillText('暂无带经纬度的启事数据', 24, H / 2);
+            return;
+        }
+        const lons = geo.map(i => Number(i.lng)), lats = geo.map(i => Number(i.lat));
+        let minX = Math.min.apply(null, lons), maxX = Math.max.apply(null, lons);
+        let minY = Math.min.apply(null, lats), maxY = Math.max.apply(null, lats);
+        const padX = Math.max((maxX - minX) * 0.15, 0.0006);
+        const padY = Math.max((maxY - minY) * 0.15, 0.0006);
+        minX -= padX; maxX += padX; minY -= padY; maxY += padY;
+        const sx = (W - 80) / Math.max(maxX - minX, 1e-6);
+        const sy = (H - 100) / Math.max(maxY - minY, 1e-6);
+        const px = lng => 40 + (Number(lng) - minX) * sx;
+        const py = lat => 58 + (maxY - Number(lat)) * sy;
 
-        // 校园示意图分区（与自绘 SVG 同一坐标系）
-        const zones = [
-            { name: '图书馆', x: .07, y: .08, w: .26, h: .20 },
-            { name: '教学楼', x: .40, y: .08, w: .28, h: .20 },
-            { name: '食堂', x: .75, y: .08, w: .18, h: .20 },
-            { name: '体育馆', x: .07, y: .36, w: .24, h: .24 },
-            { name: '中心广场', x: .38, y: .36, w: .28, h: .24 },
-            { name: '宿舍区', x: .73, y: .36, w: .20, h: .24 },
-            { name: '校车站', x: .25, y: .70, w: .24, h: .18 },
-            { name: '操场', x: .57, y: .70, w: .30, h: .18 }
-        ];
-        ctx.font = '13px sans-serif';
-        zones.forEach((z, i) => {
-            ctx.fillStyle = i % 2 ? 'rgba(32,48,79,.045)' : 'rgba(32,48,79,.075)';
-            ctx.strokeStyle = 'rgba(32,48,79,.28)';
-            ctx.lineWidth = 1.5;
-            ctx.fillRect(z.x * W, z.y * H, z.w * W, z.h * H);
-            ctx.strokeRect(z.x * W, z.y * H, z.w * W, z.h * H);
-            ctx.fillStyle = 'rgba(32,48,79,.55)';
-            ctx.fillText(z.name, z.x * W + 8, z.y * H + 20);
+        const pts = window.CampusMapGL && window.CampusMapGL.aggregateHeatPoints
+            ? window.CampusMapGL.aggregateHeatPoints(geo)
+            : geo.map(i => ({ lng: i.lng, lat: i.lat, count: 1 }));
+        pts.forEach(p => {
+            const x = px(p.lng), y = py(p.lat);
+            const r = 16 + Math.min(p.count, 12) * 5;
+            const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+            g.addColorStop(0, 'rgba(192,57,43,0.55)');
+            g.addColorStop(1, 'rgba(192,57,43,0)');
+            ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = '#C0392B'; ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = '#20304F'; ctx.font = 'bold 12px sans-serif';
+            ctx.fillText(String(p.count), x + 7, y - 6);
         });
-
-        const items = (window.itemsData || []).filter(i =>
-            i.status === 'active' && i.mapX != null && i.mapY != null);
-        items.forEach((it) => {
-            const x = 24 + (Number(it.mapX) / 1000) * (W - 48);
-            const y = 20 + (Number(it.mapY) / 700) * (H - 40);
-            const rgb = it.type === 'lost' ? '192,57,43' : '46,125,107';
-            const gradient = ctx.createRadialGradient(x, y, 0, x, y, 40);
-            gradient.addColorStop(0, 'rgba(' + rgb + ',0.55)');
-            gradient.addColorStop(1, 'rgba(' + rgb + ',0)');
-            ctx.fillStyle = gradient;
-            ctx.beginPath(); ctx.arc(x, y, 40, 0, Math.PI * 2); ctx.fill();
-            ctx.fillStyle = 'rgb(' + rgb + ')';
-            ctx.beginPath(); ctx.arc(x, y, 3.2, 0, Math.PI * 2); ctx.fill();
-        });
-
-        ctx.fillStyle = 'rgba(32,48,79,.85)';
-        ctx.font = 'bold 13px sans-serif';
-        ctx.fillText('失物热力分布 · 共 ' + items.length + ' 条已定位启事', 16, H - 14);
-        ctx.fillStyle = '#C0392B'; ctx.fillRect(W - 168, H - 26, 12, 12);
-        ctx.fillStyle = '#2E7D6B'; ctx.fillRect(W - 88, H - 26, 12, 12);
+        ctx.fillStyle = 'rgba(32,48,79,.85)'; ctx.font = 'bold 14px sans-serif';
+        ctx.fillText('武汉大学 · 失物热力数据分布（经纬度网格聚合 · 不含底图）', 16, 30);
         ctx.fillStyle = '#20304F'; ctx.font = '12px sans-serif';
-        ctx.fillText('失物', W - 150, H - 16);
-        ctx.fillText('招领', W - 70, H - 16);
+        ctx.fillText('共 ' + geo.length + ' 条带坐标启事 · 导出 ' + new Date().toLocaleString('zh-CN'), 16, H - 16);
     }
 
     function drawCategoryChart() {
@@ -755,7 +822,10 @@
         document.body.appendChild(a); a.click(); a.remove();
     }
 
-    function exportHeatmapPNG() { downloadCanvas(document.getElementById('heatmapCanvas'), '寻物智联-失物热力图-' + dateStamp() + '.png'); }
+    function exportHeatmapPNG() {
+        renderAdminHeatExport(adminHeatItems());
+        downloadCanvas(document.getElementById('heatmapExportCanvas'), '寻物智联-失物热力数据图-' + dateStamp() + '.png');
+    }
     function exportChartPNG() { downloadCanvas(document.getElementById('chartCanvas'), '寻物智联-种类分布图-' + dateStamp() + '.png'); }
 
     function exportStatsCSV() {

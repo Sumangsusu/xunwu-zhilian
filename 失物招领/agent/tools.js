@@ -26,6 +26,20 @@ function zoneAt(point) {
   return CAMPUS_ZONES.find(z => point.mapX != null && point.mapY != null &&
     point.mapX >= z.x && point.mapX <= z.x + z.w && point.mapY >= z.y && point.mapY <= z.y + z.h);
 }
+// 示意图上点到建筑还有一点距离时，按最近的建筑区域匹配，避免“点在路边就说没有结果”。
+function zoneNear(at, maxUnits = 60) {
+  const exact = zoneAt(at);
+  if (exact) return { zone: exact, approximate: false };
+  if (!Number.isFinite(at.mapX) || !Number.isFinite(at.mapY)) return { zone: null, approximate: false };
+  let best = null, bestDistance = Infinity;
+  for (const zone of CAMPUS_ZONES) {
+    const dx = Math.max(zone.x - at.mapX, 0, at.mapX - (zone.x + zone.w));
+    const dy = Math.max(zone.y - at.mapY, 0, at.mapY - (zone.y + zone.h));
+    const gap = Math.hypot(dx, dy);
+    if (gap < bestDistance) { bestDistance = gap; best = zone; }
+  }
+  return bestDistance <= maxUnits ? { zone: best, approximate: true } : { zone: null, approximate: false };
+}
 function distance(a, b) {
   const rad = v => v * Math.PI / 180;
   const term = Math.sin(rad(b.lat - a.lat) / 2) ** 2 +
@@ -41,31 +55,61 @@ function search(args, context) {
   const keyword = normalize(context.profile.keyword || textArg(args.keyword));
   const place = textArg(context.profile.place || args.location);
   const type = context.profile.type || args.type;
-  if (!['lost', 'found'].includes(type)) throw new Error('启事类型无效。');
-  const items = db.prepare("SELECT * FROM items WHERE status = 'active' AND type = ? ORDER BY id DESC").all(type)
-    .map(mapItem).filter(item => {
-      const text = normalize([item.title, item.category, item.description, ...item.features].join(' '));
-      return (!keyword || text.includes(keyword)) &&
-        (!context.profile.color || normalize(item.color + item.title + item.description).includes(context.profile.color)) &&
-        context.profile.features.every(feature => text.includes(normalize(feature))) &&
-        (context.nearby || !place || normalize(item.location).includes(normalize(place)));
-    });
-  let candidates = items.map(item => ({ item, point: coordinates(item) }));
+  if (!['lost', 'found', 'all'].includes(type)) throw new Error('启事类型无效。');
+  const sql = type === 'all'
+    ? "SELECT * FROM items WHERE status = 'active' ORDER BY id DESC"
+    : "SELECT * FROM items WHERE status = 'active' AND type = ? ORDER BY id DESC";
+  const rows = db.prepare(sql).all(...(type === 'all' ? [] : [type]));
+  const items = rows.map(mapItem).filter(item => {
+    const text = normalize([item.title, item.category, item.description, ...item.features].join(' '));
+    return (!keyword || text.includes(keyword)) &&
+      (!context.profile.color || normalize(item.color + item.title + item.description).includes(context.profile.color)) &&
+      context.profile.features.every(feature => text.includes(normalize(feature)));
+  });
+  const allCandidates = items.map(item => ({ item, point: coordinates(item) }));
+  let candidates = allCandidates;
   let notice = '';
   if (context.nearby) {
     const at = context.location;
     if (!at) throw new Error('请先在地图选择这次搜索的位置，或直接告诉我校园地点。');
+    const byPlace = place
+      ? allCandidates.filter(({ item }) => normalize(item.location).includes(normalize(place)))
+      : [];
     if (at.lng != null) {
-      candidates = candidates.filter(({ point }) => point.lng != null && point.lat != null)
+      // 示意坐标并非实测，按距离硬筛容易把用户明确说出的地点漏掉：
+      // 先取“既符合地点文字又在范围内”的记录，再退回地点文字，最后才放宽距离。
+      const within = (radius, subset = allCandidates) => subset
+        .filter(({ point }) => point.lng != null && point.lat != null)
         .map(entry => ({ ...entry, distance: distance(at, entry.point) }))
-        .filter(entry => entry.distance <= at.radius_m).sort((a, b) => a.distance - b.distance);
-      notice = '附近结果仅包含已登记经纬度的记录，距离为近似直线距离。';
+        .filter(entry => entry.distance <= radius)
+        .sort((a, b) => a.distance - b.distance);
+      candidates = within(at.radius_m, byPlace.length ? byPlace : allCandidates);
+      notice = '附近结果包含已登记坐标的记录，距离为近似直线距离。';
+      if (!candidates.length && byPlace.length) {
+        candidates = byPlace;
+        notice = '选点 ' + at.radius_m + ' 米内暂无匹配记录，已按地点“' + place + '”展示全校结果（坐标为示意估算，仅供参考）。';
+      }
+      if (!candidates.length) {
+        const wider = within(5000);
+        if (wider.length) {
+          candidates = wider;
+          notice = '选点 ' + at.radius_m + ' 米内暂无记录，已扩大到全校范围（距离为示意估算，仅供参考）。';
+        }
+      }
     } else {
-      const zone = zoneAt(at);
-      if (!zone) throw new Error('请在示意图的建筑区域内选点，或输入地点名称。');
-      candidates = candidates.filter(({ point }) => zoneAt(point)?.name === zone.name);
-      notice = '正在查找' + zone.name + '区域内的记录。示意图按区域筛选。';
+      const picked = zoneNear(at);
+      if (!picked.zone) throw new Error('请在示意图的建筑区域内选点，或输入地点名称。');
+      const inZone = allCandidates.filter(({ point }) => zoneAt(point)?.name === picked.zone.name);
+      candidates = byPlace.length ? inZone.filter(entry => byPlace.includes(entry)) : inZone;
+      notice = '正在查找' + picked.zone.name + '区域内的记录。示意图按区域筛选。' +
+        (picked.approximate ? '（选点靠近该建筑，已按最近区域匹配）' : '');
+      if (!candidates.length && byPlace.length) {
+        candidates = byPlace;
+        notice = '选点区域暂无匹配记录，已按地点“' + place + '”展示全校结果。';
+      }
     }
+  } else if (place) {
+    candidates = allCandidates.filter(({ item }) => normalize(item.location).includes(normalize(place)));
   }
   const result = candidates.slice(0, 6).map(({ item, distance: meters }) => ({
     ...card(item), ...(meters == null ? {} : { distance_m: Math.round(meters / 100) * 100 })

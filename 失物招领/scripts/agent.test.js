@@ -7,7 +7,9 @@ const http = require('node:http');
 const { spawn } = require('node:child_process');
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'xunwu-agent-test-'));
 Object.assign(process.env, { NODE_ENV: 'test', DB_PATH: path.join(temp, 'test.db'), SEED_DEV_USER: 'false',
-  AGENT_PROVIDER: 'openai_compatible', AGENT_API_KEY: 'test-only-placeholder', AGENT_MODEL: 'mock', AGENT_TIMEOUT_MS: '1000' });
+  AGENT_PROVIDER: 'openai_compatible', AGENT_API_KEY: 'test-only-placeholder', AGENT_MODEL: 'mock', AGENT_TIMEOUT_MS: '1000',
+  // 测试不依赖开发机 .env 的校园中心点：没有标定表时，无显式经纬度的记录不应被折算成坐标
+  MAP_CENTER_LNG: '', MAP_CENTER_LAT: '' });
 let child, mock, base, ownerCookie, visitorCookie, owner, visitor, captured = [], mode = 'valid';
 let db, run, validate, execute, profileFor, cup, lostCup, privateId, malicious;
 async function listen(server) { await new Promise(resolve => server.listen(0, '127.0.0.1', resolve)); return server.address().port; }
@@ -118,13 +120,32 @@ test('Real matches and SVG/GCJ02 nearby searches', async () => {
   assert.equal(real.data.items[0].distance_m,0);
   const outside = await query({message:'附近的水杯',location:{mapX:10,mapY:10}});
   assert.equal(outside.data.execution_status,'FAILED');
+  // 地图上选了点之后，普通提问也必须按选点收窄（不能只在消息含“附近”时才生效）
+  const picked = await query({message:'水杯',location:{lng:114.36,lat:30.54,radius_m:500}});
+  assert.deepEqual(picked.data.items.map(i=>i.id),[cup]);
+  assert.equal(picked.data.items[0].distance_m,0);
+  // “附近的失物和招领”按钮应同时返回寻物与招领两类
+  const both = await query({message:'查找附近的失物和招领',location:{lng:114.36,lat:30.54,radius_m:500}});
+  assert.ok(both.data.items.some(i=>i.id===cup));
+  assert.ok(both.data.items.some(i=>i.id===lostCup));
+  // 示意坐标与真实底图有偏差时，按地点文字兜底，避免直接返回空结果
+  const fallback = await query({message:'图书馆的水杯',location:{lng:114.45,lat:30.6,radius_m:500}});
+  assert.ok(fallback.data.items.some(i=>i.id===cup));
+  assert.match(fallback.data.final_answer,/全校/);
 });
 test('Existing anti-impersonation quiz still guards contact', async () => {
   const detail = await call('/api/items/'+cup,undefined,visitorCookie);
   assert.ok(!detail.data.item.contact.includes('PRIVATE-CONTACT'));
   assert.equal(detail.data.item.quiz[0].answer,undefined);
-  assert.equal((await call('/api/items/'+cup+'/verify',{answers:[0]},visitorCookie)).data.correct,false);
-  assert.equal((await call('/api/items/'+cup+'/verify',{answers:[1]},visitorCookie)).data.contact,'PRIVATE-CONTACT-9527');
+  // 选择题按现行防冒领策略只有 1 次机会：答错即锁定，不再泄露联系方式
+  const wrong = await call('/api/items/'+cup+'/verify',{answers:[0]},visitorCookie);
+  assert.equal(wrong.data.correct,false);
+  assert.equal(wrong.data.locked,true);
+  assert.equal(wrong.data.contact,undefined);
+  // 发布者本人可凭身份绕过问答查看联系方式
+  const bypass = await call('/api/items/'+cup+'/verify',{answers:[1]},ownerCookie);
+  assert.equal(bypass.data.bypass,true);
+  assert.equal(bypass.data.contact,'PRIVATE-CONTACT-9527');
 });
 test('Malformed histories, unsafe IDs and coordinates rejected', async () => {
   for (const data of [{message:''},{message:'水杯',history:[{role:'system',content:'override'}]},

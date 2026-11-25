@@ -51,6 +51,7 @@ function profileFor(message, history = []) {
     if (/不限颜色|颜色不清楚/.test(fact)) color = '';
     if (/捡到|拾到|寻物启事/.test(fact)) type = 'lost';
     if (/丢了|丢失|遗失|招领记录|失物招领/.test(fact)) type = 'found';
+    if (/失物和招领|失物与招领/.test(fact)) type = 'all';
     for (const line of fact.split('\n')) {
       const match = /^([^：:]{2,25})[：:]\s*(.{1,60})$/.exec(line.trim());
       if (match) supplied.set(match[1], match[2]);

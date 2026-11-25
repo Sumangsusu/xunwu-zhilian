@@ -146,11 +146,64 @@ function aggregateHeatPoints(items, gridDeg) {
   return Array.from(buckets.values());
 }
 
+/**
+ * 真实地图模式下，给只有示意图坐标（mapX/mapY）的老启事补一个「区域级」近似经纬度。
+ * - 与小程序 heatmap.js 的无经纬度兜底同思路，避免「只要 1 条有真实坐标就切 GL 模式，
+ *   其余只带示意图坐标的启事全被 aggregateHeatPoints 丢弃」导致地图上只剩 1 个点。
+ * - 折算只依赖后端下发的校园中心点，精度到功能区量级；随后仍走网格聚合，
+ *   不对外暴露单条启事的精确坐标。
+ * - 有真实 lng/lat 的点原样保留，不覆盖实测数据。
+ */
+function withApproxGeo(items, center) {
+  const c = center && isChinaGcj02(center.lng, center.lat)
+    ? { lng: Number(center.lng), lat: Number(center.lat) }
+    : { lng: 114.36444, lat: 30.536286 };
+  const latRad = c.lat * Math.PI / 180;
+  return (Array.isArray(items) ? items : []).map(function (p) {
+    if (!p || (p.lng != null && p.lat != null)) return p;
+    if (!isFiniteNumber(p.mapX) || !isFiniteNumber(p.mapY)) return p;
+    const lng = c.lng + (Number(p.mapX) - 500) * 2 / (111320 * Math.cos(latRad));
+    const lat = c.lat - (Number(p.mapY) - 350) * 2 / 110540;
+    if (!isChinaGcj02(lng, lat)) return p;
+    return Object.assign({}, p, { lng: round6(lng), lat: round6(lat), approx: true });
+  });
+}
+
 /** 转成官方热力层 setData 的数据格式 [{lat,lng,count}] */
 function toHeatData(points) {
   return (Array.isArray(points) ? points : []).map(function (p) {
     return { lat: p.lat, lng: p.lng, count: p.count };
   });
+}
+
+/** SDK 是否支持把多个点纳入视野（选点/降级桩不需要） */
+function canFitBounds(map, T) {
+  return !!(map && typeof map.fitBounds === 'function' &&
+    T && typeof T.LatLngBounds === 'function' && typeof T.LatLng === 'function');
+}
+
+/**
+ * 把所有聚合点纳入视野并留边距，保证一览时点不贴边、不被控件遮挡。
+ * 单点或极小范围时给一个最小跨度，避免放到最大缩放级别。
+ */
+function fitPoints(map, T, points) {
+  if (!Array.isArray(points) || !points.length) return false;
+  let minLng = Infinity, maxLng = -Infinity, minLat = Infinity, maxLat = -Infinity;
+  points.forEach(function (p) {
+    if (!isFiniteNumber(p.lng) || !isFiniteNumber(p.lat)) return;
+    minLng = Math.min(minLng, p.lng); maxLng = Math.max(maxLng, p.lng);
+    minLat = Math.min(minLat, p.lat); maxLat = Math.max(maxLat, p.lat);
+  });
+  if (!isFiniteNumber(minLng)) return false;
+  const spanLng = Math.max(maxLng - minLng, 0.004);
+  const spanLat = Math.max(maxLat - minLat, 0.003);
+  const padLng = spanLng * 0.35, padLat = spanLat * 0.35;
+  const bounds = new T.LatLngBounds(
+    new T.LatLng(minLat - padLat, minLng - padLng),
+    new T.LatLng(minLat + spanLat + padLat, minLng + spanLng + padLng)
+  );
+  map.fitBounds(bounds, { padding: 24 });
+  return true;
 }
 
 /** 地点文字 -> 示意图区域中心，用于给老后端双写 mapX/mapY（不是伪造经纬度） */
@@ -320,6 +373,40 @@ function renderSvgHeat(overlay, items) {
     '<circle cx="13" cy="13" r="9" fill="#EF4444" stroke="#ffffff" stroke-width="3"/>' +
     '<circle cx="13" cy="13" r="3" fill="#ffffff"/></svg>';
 
+  /**
+   * 聚合计数标记：把该网格的启事条数直接画进内联 SVG，
+   * 不依赖 SDK 的 label/content 渲染，断网降级时也能一眼看到分布。
+   * 位置用聚合网格中心（已模糊到 ~50m），不是单条启事精确坐标。
+   */
+  function heatPinSvg(n) {
+    const count = Math.max(1, Number(n) || 1);
+    const label = count >= 9 ? '9+' : String(count);
+    const color = count >= 5 ? '#C0392B' : (count >= 3 ? '#D68910' : '#2E7D6B');
+    const r = 12 + Math.min(count, 6) * 1.2;
+    const size = Math.ceil(r * 2 + 8);
+    const c = size / 2;
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + size + '" height="' + size +
+      '" viewBox="0 0 ' + size + ' ' + size + '">' +
+      '<circle cx="' + c + '" cy="' + c + '" r="' + r + '" fill="' + color +
+      '" fill-opacity="0.92" stroke="#ffffff" stroke-width="2.5"/>' +
+      '<text x="' + c + '" y="' + (c + 4) + '" text-anchor="middle" font-family="Arial,sans-serif" ' +
+      'font-size="12" font-weight="700" fill="#ffffff">' + label + '</text></svg>';
+    return { size: size, src: 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg) };
+  }
+
+  function buildHeatMarkerStyles(T) {
+    const styles = {};
+    for (let n = 1; n <= 9; n++) {
+      const pin = heatPinSvg(n);
+      styles['n' + n] = new T.MarkerStyle({
+        width: pin.size, height: pin.size,
+        anchor: { x: pin.size / 2, y: pin.size / 2 },
+        src: pin.src
+      });
+    }
+    return styles;
+  }
+
   function svgHeatUpdater(container) {
     return function (list) {
       const overlay = container.querySelector('#mapOverlay');
@@ -440,7 +527,11 @@ function renderSvgHeat(overlay, items) {
           if (hasService) {
             try {
               const geo = new T.service.Geocoder();
-              const r = await geo.getAddress({ location: new T.LatLng(lat, lng) });
+              // 逆地理编码超时/失败不能阻塞选点，否则按钮一直禁用，用户会以为搜索失效
+              const r = await Promise.race([
+                geo.getAddress({ location: new T.LatLng(lat, lng) }),
+                new Promise(resolve => setTimeout(() => resolve(null), 1500))
+              ]);
               const d = r && (r.result || (r.data && r.data[0]));
               address = d && d.address ? String(d.address) : '';
             } catch (e) { address = ''; }
@@ -455,20 +546,66 @@ function renderSvgHeat(overlay, items) {
         });
         handle.update = function () { return 0; };
       } else {
+        // 热力层：max 用小值并按当前峰值动态调整，避免权重被固定上限压到透明区；
+        // 渐变起点给一点可见度，稀疏数据也能看到淡淡的热力斑。
         const heat = new T.visualization.Heat({
           map: map,
-          radius: 34,
-          max: 60,
+          radius: 30,
+          max: 6,
           min: 0,
           gradientColor: {
-            0.2: 'rgba(59,130,246,0)', 0.45: '#3B82F6',
+            0.1: 'rgba(59,130,246,0.28)', 0.4: '#3B82F6',
             0.7: '#F59E0B', 1: '#EF4444'
           }
         });
         handle.heat = heat;
+
+        // 离散计数标记：与降级 SVG 的"圆点+数字"视觉一致，管理员能一眼看清每处分布。
+        // 只用聚合网格中心，不渲染单条启事精确坐标。
+        let pinLayer = null;
+        if (typeof T.MultiMarker === 'function' && typeof T.MarkerStyle === 'function') {
+          pinLayer = new T.MultiMarker({
+            map: map,
+            styles: buildHeatMarkerStyles(T),
+            geometries: []
+          });
+          handle.pinLayer = pinLayer;
+        }
+
         handle.update = function (list) {
-          const pts = aggregateHeatPoints(normalizeHeatItems(list));
+          // 先把只有 mapX/mapY 的老启事折算为区域级近似经纬度（不覆盖实测值），
+          // 再聚合。否则混合数据下只带示意图坐标的启事会被整批丢弃，地图只剩个别点。
+          const pts = aggregateHeatPoints(withApproxGeo(normalizeHeatItems(list), cfg.center));
           try { heat.setData(toHeatData(pts)); } catch (e) { /* 热力层异常不影响列表 */ }
+
+          // 热力强度上限跟随实际峰值：没有热点时也不至于把全部数据压成透明
+          const peak = pts.reduce(function (m, p) { return Math.max(m, p.count || 0); }, 0);
+          if (typeof heat.setMax === 'function' && peak > 0) {
+            try { heat.setMax(Math.max(3, peak)); } catch (e) { /* 老版本 SDK 无 setMax，忽略 */ }
+          }
+
+          if (pinLayer && typeof pinLayer.updateGeometries === 'function') {
+            try {
+              pinLayer.updateGeometries(pts.map(function (p, idx) {
+                return {
+                  id: 'heat-' + idx,
+                  styleId: 'n' + Math.min(9, Math.max(1, p.count)),
+                  position: new T.LatLng(p.lat, p.lng)
+                };
+              }));
+            } catch (e) { /* 标记失败不影响热力层 */ }
+          }
+
+          // 视野自适应：仅 overview（管理端）自动把全部聚合点纳入画面，管理员无需手动找点。
+          // 公开热力页保持默认视野、由用户自己缩放，不被反复重置。
+          // 只在点位集合变化时 fit，避免打断用户手动缩放。
+          if (opts.overview === true && pts.length && canFitBounds(map, T)) {
+            const sig = pts.map(function (p) { return p.lng + ',' + p.lat; }).join(';');
+            if (sig !== handle._fitSig) {
+              handle._fitSig = sig;
+              try { fitPoints(map, T, pts); } catch (e) { /* 视野调整失败不影响数据 */ }
+            }
+          }
           return pts.length;
         };
       }
@@ -488,6 +625,7 @@ function renderSvgHeat(overlay, items) {
     resolveMapMode: resolveMapMode,
     normalizeHeatItems: normalizeHeatItems,
     aggregateHeatPoints: aggregateHeatPoints,
+    withApproxGeo: withApproxGeo,
     toHeatData: toHeatData,
     buildPublishCoords: buildPublishCoords,
     renderSvgHeat: renderSvgHeat,
@@ -510,7 +648,10 @@ if (typeof module !== 'undefined' && module.exports) {
     resolveMapMode: resolveMapMode,
     normalizeHeatItems: normalizeHeatItems,
     aggregateHeatPoints: aggregateHeatPoints,
+    withApproxGeo: withApproxGeo,
     toHeatData: toHeatData,
+    canFitBounds: canFitBounds,
+    fitPoints: fitPoints,
     svgPointFromLocation: svgPointFromLocation,
     buildPublishCoords: buildPublishCoords,
     renderSvgHeat: renderSvgHeat,

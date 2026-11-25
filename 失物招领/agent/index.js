@@ -24,7 +24,9 @@ function validate(body) {
 async function run(input, user, signal) {
   const profile = profileFor(input.message, input.history);
   const plan = localPlan(input.message, profile);
-  const nearby = /附近/.test(input.message);
+  // 只要用户在地图上选了点，后续所有检索都应默认按该位置收窄范围；
+  // 不能只在消息里出现“附近”时才生效，否则选点会被静默忽略。
+  const nearby = Boolean(input.location) || /附近/.test(input.message);
   const result = { final_answer: '', items: [], map_items: [], tools_used: [], steps_count: 0,
     execution_status: 'COMPLETED', provider: 'local', fallback_used: false, follow_up_questions: [], location_insight: [] };
   if (plan.answer) return { ...result, final_answer: plan.answer, action: plan.action };

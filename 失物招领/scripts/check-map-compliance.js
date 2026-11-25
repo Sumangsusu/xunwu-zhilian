@@ -23,6 +23,7 @@ const JS_DIR = path.join(PUBLIC, 'js');
 const MAP_FILE = path.join(JS_DIR, 'campus-map.js');
 const PUB_HTML = path.join(PUBLIC, 'publish.html');
 const HM_HTML = path.join(PUBLIC, 'heatmap.html');
+const ADMIN_HTML = path.join(PUBLIC, 'admin.html');
 
 const results = [];
 function check(name, ok, detail) {
@@ -33,6 +34,7 @@ function read(p) { return fs.readFileSync(p, 'utf8'); }
 const mapSrc = read(MAP_FILE);
 const pubSrc = read(PUB_HTML);
 const hmSrc = read(HM_HTML);
+const adminSrc = read(ADMIN_HTML);
 const M = require(MAP_FILE);
 
 console.log('寻物智联 · B1 地图合规落地验收\n');
@@ -75,6 +77,21 @@ check('合法 GCJ-02 保留', norm[0].lng === 114.36012 && norm[0].lat === 30.53
 check('示意坐标保留（老数据兼容）', norm[0].mapX === 420 && norm[0].mapY === 100);
 check('中国范围外经纬度丢弃', M.normalizeHeatItems([{ lng: 0, lat: 0, mapX: 1, mapY: 2 }])[0].lng === null);
 check('非数组输入返回空', Array.isArray(M.normalizeHeatItems(null)) && M.normalizeHeatItems(null).length === 0);
+
+// 混合数据：只有示意图坐标的老启事也能落到真实地图上（修复管理端只显示 1 个点）
+const approx = M.withApproxGeo([
+    { lng: 114.36012, lat: 30.53012, mapX: 420, mapY: 100, id: 1 },
+    { lng: null, lat: null, mapX: 420, mapY: 100, id: 2 },
+    { lng: null, lat: null, mapX: 700, mapY: 500, id: 3 },
+    { lng: null, lat: null, mapX: null, mapY: null, id: 4 }
+], { lng: 114.36444, lat: 30.536286 });
+check('真实经纬度不被近似折算覆盖', approx[0].lng === 114.36012 && !approx[0].approx, JSON.stringify(approx[0]));
+check('仅示意图坐标的启事折算为 GCJ-02 近似点', approx[1].lng != null && approx[1].lat != null && approx[1].approx === true, JSON.stringify(approx[1]));
+check('不同区域折算到不同点位（不止 1 个点）', approx[1].lng !== approx[2].lng || approx[1].lat !== approx[2].lat);
+check('无坐标无示意图的启事保持无经纬度', approx[3].lng == null && approx[3].lat == null);
+check('无经纬度时仍能降级到默认校园中心', M.withApproxGeo([{ mapX: 420, mapY: 100 }], null)[0].lng != null);
+const mixedAgg = M.aggregateHeatPoints(approx);
+check('混合数据聚合出多个网格点', mixedAgg.length >= 2, JSON.stringify(mixedAgg));
 
 // 聚合：不渲染单条精确坐标
 const agg = M.aggregateHeatPoints([
@@ -147,17 +164,28 @@ function loadModule(ctx) {
 }
 
 function fakeTMap() {
-    const calls = { heatData: null, clickHandler: null, geometries: null, geoCalls: 0 };
-    function Heat(cfg) { this.cfg = cfg; this.setData = function (d) { calls.heatData = d; }; this.setMap = function () { }; }
-    function Map(canvas, cfg) { this.canvas = canvas; this.cfg = cfg; this.on = function (ev, cb) { if (ev === 'click') calls.clickHandler = cb; }; }
+    const calls = { heatData: null, heatMax: null, clickHandler: null, geometries: null, geoCalls: 0, fitBounds: null };
+    function Heat(cfg) {
+        this.cfg = cfg;
+        this.setData = function (d) { calls.heatData = d; };
+        this.setMax = function (m) { calls.heatMax = m; };
+        this.setMap = function () { };
+    }
+    function Map(canvas, cfg) {
+        this.canvas = canvas; this.cfg = cfg;
+        this.on = function (ev, cb) { if (ev === 'click') calls.clickHandler = cb; };
+        this.fitBounds = function (b, o) { calls.fitBounds = { b: b, o: o }; };
+    }
     function LatLng(lat, lng) { this.lat = lat; this.lng = lng; this.getLat = function () { return lat; }; this.getLng = function () { return lng; }; }
+    function LatLngBounds(sw, ne) { this.sw = sw; this.ne = ne; }
     function MultiMarker(cfg) { this.cfg = cfg; this.updateGeometries = function (g) { calls.geometries = g; }; }
     function MarkerStyle(cfg) { this.cfg = cfg; }
     function Geocoder() { this.getAddress = function () { calls.geoCalls++; return Promise.resolve({ result: { address: '图书馆' } }); }; }
     return {
         calls: calls,
         TMap: {
-            Map: Map, LatLng: LatLng, MultiMarker: MultiMarker, MarkerStyle: MarkerStyle,
+            Map: Map, LatLng: LatLng, LatLngBounds: LatLngBounds,
+            MultiMarker: MultiMarker, MarkerStyle: MarkerStyle,
             visualization: { Heat: Heat }, service: { Geocoder: Geocoder }
         }
     };
@@ -230,6 +258,21 @@ const noFetch = async function () { return { ok: false, status: 404, json: async
         check('热力层 setData 收到聚合数据', cnt === 1 && Array.isArray(fake.calls.heatData) && fake.calls.heatData.length === 1);
         check('聚合数据不含单条精确坐标或 id', !/id|114\.36012/.test(JSON.stringify(fake.calls.heatData)), JSON.stringify(fake.calls.heatData));
         check('热力层 setData 格式为 {lat,lng,count}', Object.keys(fake.calls.heatData[0]).sort().join(',') === 'count,lat,lng');
+        check('热力上限按峰值动态调整', fake.calls.heatMax === 3, String(fake.calls.heatMax));
+        check('真实地图推送离散计数标记（不是只有热力层）',
+            Array.isArray(fake.calls.geometries) && fake.calls.geometries.length === 1 &&
+            /^n\d$/.test(fake.calls.geometries[0].styleId), JSON.stringify(fake.calls.geometries));
+        check('计数标记位置为聚合中心（无单条精确坐标）',
+            !/114\.36012|30\.53012/.test(JSON.stringify(fake.calls.geometries)),
+            JSON.stringify(fake.calls.geometries));
+        // overview 模式：视野自动纳入全部点
+        const ov = fakeTMap();
+        const ovEnv = makeSandbox({ fetch: okFetch, TMap: ov.TMap });
+        const ovGL = loadModule(ovEnv.sandbox);
+        const ovHandle = await ovGL.mount(ovEnv.container, { overview: true });
+        ovHandle.update(items);
+        check('overview 模式自动 fitBounds 纳入全部点', ov.calls.fitBounds && ov.calls.fitBounds.b && ov.calls.fitBounds.b.sw,
+            JSON.stringify(ov.calls.fitBounds && ov.calls.fitBounds.b));
     }
 
     // B5: 发布页选点 -> 双写 lng/lat + mapX/mapY，地点文字走 service 类
@@ -269,15 +312,16 @@ const noFetch = async function () { return { ok: false, status: 404, json: async
     console.log('--- C. 静态合规红线 ---');
 
     const FORBIDDEN = /googleapis|google\.com\/maps|openstreetmap|osm\.org|mapbox|leafletjs|leaflet\b|bing\.com\/maps|apple\.com\/maps/i;
-    check('无境外/非合规底图服务商', !FORBIDDEN.test(mapSrc + pubSrc + hmSrc));
-    check('未照搬本地代理安全配置模板', !/_TMapSecurityConfig|securityConfig/i.test(mapSrc + pubSrc + hmSrc));
-    check('无本机/回环地址硬编码', !/(?:localhost|127\.0\.0\.1|0\.0\.0\.0)(?::\d+)?/i.test(mapSrc + pubSrc + hmSrc));
+    const ALL_PAGES = mapSrc + pubSrc + hmSrc + adminSrc;
+    check('无境外/非合规底图服务商', !FORBIDDEN.test(ALL_PAGES));
+    check('未照搬本地代理安全配置模板', !/_TMapSecurityConfig|securityConfig/i.test(ALL_PAGES));
+    check('无本机/回环地址硬编码', !/(?:localhost|127\.0\.0\.1|0\.0\.0\.0)(?::\d+)?/i.test(ALL_PAGES));
 
     // 外部 URL：只允许 SVG 命名空间；SDK 地址不得写死在前端业务代码
-    const extUrls = (mapSrc + pubSrc + hmSrc).match(/https?:\/\/[^\s"'`)<>]+/gi) || [];
+    const extUrls = ALL_PAGES.match(/https?:\/\/[^\s"'`)<>]+/gi) || [];
     const badUrls = extUrls.filter(u => !/w3\.org/i.test(u));
     check('业务代码无写死的外部 SDK 地址（SDK 由后端下发）', badUrls.length === 0, badUrls.slice(0, 4).join(' | '));
-    check('无明文可用 key（只校验不保存）', !/key\s*[:=]\s*['"][A-Za-z0-9]{16,}['"]/i.test(mapSrc + pubSrc + hmSrc));
+    check('无明文可用 key（只校验不保存）', !/key\s*[:=]\s*['"][A-Za-z0-9]{16,}['"]/i.test(ALL_PAGES));
     check('配置接口路径存在且由 apiUrl 取址', /\/api\/map\/config/.test(mapSrc) && /apiPath\(MAP_CONFIG_ENDPOINT\)/.test(mapSrc));
     check('SDK 域名白名单校验存在', /MAP_ALLOWED_HOST/.test(mapSrc) && /host-not-allowed/.test(mapSrc));
 
@@ -285,7 +329,12 @@ const noFetch = async function () { return { ok: false, status: 404, json: async
     check('只使用官方真实存在的 API', OFFICIAL_APIS.every(a => mapSrc.indexOf(a) >= 0), OFFICIAL_APIS.filter(a => mapSrc.indexOf(a) < 0).join(','));
     check('坐标系标注 GCJ-02 且不做 WGS-84 转换', /GCJ-02/.test(mapSrc) && !/WGS-?84\s*(?:to|2|=>|转)/i.test(mapSrc));
     check('地图容器固定高度常量存在', /MAP_GL_HEIGHT/.test(mapSrc) && /canvas\.style\.height/.test(mapSrc));
-    check('热力层只做聚合（setData 前先 aggregate）', /aggregateHeatPoints\(normalizeHeatItems/.test(mapSrc));
+    check('热力层只做聚合（setData 前先 aggregate）', /aggregateHeatPoints\(withApproxGeo\(normalizeHeatItems/.test(mapSrc));
+    check('混合数据下老示意图坐标折算为近似经纬度（不再只显示 1 个点）',
+        /function withApproxGeo/.test(mapSrc) && /aggregateHeatPoints\(withApproxGeo\(normalizeHeatItems/.test(mapSrc));
+    check('真实地图有离散计数标记（圆点+数字，不只靠透明热力斑）', /buildHeatMarkerStyles/.test(mapSrc) && /pinLayer\.updateGeometries/.test(mapSrc));
+    check('热力上限按峰值动态调整（不写死 max=60 抹平数据）', /heat\.setMax/.test(mapSrc));
+    check('视野自适应只在 overview 模式启用（公开页不被重置）', /opts\.overview === true && pts\.length && canFitBounds/.test(mapSrc) && /overview:\s*true/.test(adminSrc));
     check('降级链路覆盖多种失败原因', (mapSrc.match(/return fallback\(/g) || []).length >= 6);
     check('自绘 SVG 降级方案保留（未整套删除）', /function campusMapMarkup/.test(mapSrc) && /campusMapMarkup\(\)/.test(mapSrc));
 
@@ -301,6 +350,15 @@ const noFetch = async function () { return { ok: false, status: 404, json: async
     check('热力图有降级可见提示', /id="hmMapNotice"/.test(hmSrc) && /onHeatmapMode/.test(hmSrc));
     check('热力图老数据强制回退判断', /forceSvg:\s*!hasGeo/.test(hmSrc));
     check('两页都引入统一地图组件', /js\/campus-map\.js/.test(pubSrc) && /js\/campus-map\.js/.test(hmSrc));
+
+    // 管理端热力图：同一套真实地图组件，禁止回到自绘假坐标示意图
+    check('管理端引入统一地图组件', /js\/campus-map\.js/.test(adminSrc));
+    check('管理端热力图使用统一组件挂载', /CampusMapGL\.mount\(host/.test(adminSrc) && /onAdminHeatMode/.test(adminSrc));
+    check('管理端已移除自绘假坐标 Canvas', !/id="heatmapCanvas"/.test(adminSrc) && !/\/ 1000\) \* \(W - 48\)/.test(adminSrc));
+    check('管理端热力数据经字段白名单过滤', /normalizeHeatItems\(raw\)/.test(adminSrc));
+    check('管理端老数据/无经纬度强制回退', /forceSvg:\s*!hasGeo/.test(adminSrc));
+    check('管理端有降级可见提示', /id="adminHeatNotice"/.test(adminSrc) && /ADMIN_HEAT_FALLBACK_TEXT/.test(adminSrc));
+    check('管理端导出图按经纬度聚合且不含底图', /aggregateHeatPoints\(geo\)/.test(adminSrc) && /不含底图/.test(adminSrc));
 
     // ---------- 汇总 ----------
     let pass = 0;
