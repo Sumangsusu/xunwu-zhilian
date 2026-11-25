@@ -10,7 +10,9 @@
 //   3) 校区/学部层 AREA_ALIASES：独立于 normalize，因为 normalize 会把"信息学部/工学部"
 //      当修饰词删掉，"信息学部""信部"这类只指校区的查询会被清空 → 永远搜不到；
 //   4) 双向 token 匹配 tokens()/matchText()：既做归一化子串包含（保留原能力），
-//      又做"查询与文本是否指向同一地点键"的集合交集，从而兼顾召回与精度。
+//      又做"查询与文本是否指向同一地点键"的集合交集，从而兼顾召回与精度；
+//   5) 查询侧片段召回 queryTokens()：用户输入地点名的任意连续片段（≥2字，如
+//      "万林" → "万林艺术博物馆" → 艺术楼）都能归入该地点键，不再逐个地点补别名。
 //
 // 兼容：本文件顶层只有数据与纯函数，无 window/document 依赖。
 //   - Node：require('./public/js/location-alias')（后端检索接口与验收脚本用）
@@ -199,7 +201,10 @@
     '校门': ['校门', '校门口', '大门', '南门', '北门', '东门', '西门', 'gate'],
     '行政楼': ['行政楼', '行政大楼', '办公楼'],
     '保卫处': ['保卫处', '保卫科'],
-    '艺术楼': ['艺术楼', '艺术学院', '美术馆'],
+    // 万林艺术博物馆即学生口中的"艺术楼"，地图上标的是前者、启事里多写后者。
+    // 登记整名后，查询侧片段召回（见 fragmentKeys）会让"万林 / 万林艺术 / 艺术博物馆"
+    // 等任意片段都归入本键，无需为每种截断写法再补一条别名。
+    '艺术楼': ['艺术楼', '艺术学院', '美术馆', '万林艺术博物馆', '万林艺术馆'],
     '湖畔花园': ['湖畔花园', '湖畔', '珞珈湖', '人工湖'],
     '校车站牌': ['校车站牌', '校车站', '车站牌', '班车点'],
     // 教学楼 A/B 座：与"数字教"体系区分，单独成键。
@@ -214,6 +219,39 @@
       const n = normalize(alias);
       if (n) ALIAS_INDEX[n] = key;
     }
+  }
+
+  // ---------- 2.8 查询侧片段召回（通用部分关键字匹配） ----------
+  // 为什么需要：tokens() 只认"完整别名"或"N教"规则。用户输"万林"时，它不是任何别名，
+  // 于是 ks 为空、退回字面包含；而发布者写"艺术楼画室"，两者字面毫无交集 → 漏配。
+  // 逐地点补别名（把"万林"也塞进别名表）只能修这一个词，来一个新地点又要改一次。
+  // 通用做法：用 lightNormalize（不删修饰词/不做同义合并）保留别名原始字形，建立
+  // "别名全文 → 地点键"索引；查询词只要是其中任一条的连续片段（≥2 字），就归入该键。
+  // 例：万林 → 命中"万林艺术博物馆" → 艺术楼；艺术博物馆 → 同样命中；
+  //     图书馆三楼 → 命中"图书馆" → 图书馆。文本侧仍用严格 tokens()，靠键交集保证精度。
+  const FRAGMENT_ALIASES = [];
+  for (const key of Object.keys(LOCATION_ALIASES)) {
+    for (const alias of LOCATION_ALIASES[key]) {
+      const t = lightNormalize(alias);
+      if (t.length >= 2) FRAGMENT_ALIASES.push({ text: t, key: key });
+    }
+  }
+  for (const item of AREA_ALIAS_LIST) {
+    if (item.text.length >= 2) FRAGMENT_ALIASES.push({ text: item.text, key: item.key });
+  }
+
+  /**
+   * 查询词命中的地点键（片段召回）。单字不参与，避免"一 / 的"之类泛字误伤。
+   * 只用于查询侧；文本侧不启用，防止描述里的半截词把不相关启事拉进来。
+   */
+  function fragmentKeys(text) {
+    const q = lightNormalize(text);
+    const found = [];
+    if (q.length < 2) return found;
+    for (const item of FRAGMENT_ALIASES) {
+      if (item.text.indexOf(q) !== -1 && found.indexOf(item.key) === -1) found.push(item.key);
+    }
+    return found;
   }
 
   // 教学楼数字键的识别范围：1~30 教，避免把随机数字（如"301"）误判成地点。
@@ -250,6 +288,8 @@
   function matchText(keyword, text) {
     const ks = tokens(keyword);
     for (const qa of queryAreaKeys(keyword)) if (ks.indexOf(qa) === -1) ks.push(qa);
+    // 通用部分关键字：查询是某地点别名的连续片段时也归入该地点键。
+    for (const fk of fragmentKeys(keyword)) if (ks.indexOf(fk) === -1) ks.push(fk);
     const kt = tokens(text);
     const nk = normalize(keyword);
     const nt = normalize(text);
@@ -262,16 +302,20 @@
       return intersect(ks, kt);
     }
 
-    // 查询本身是已知地点：只认地点键，不走字面。
+    // 查询本身指向已知地点键（完整别名或片段）：文本侧没有地点键时也不走字面。
     // 否则 normalize('一教')='1教' 会作为子串误命中 '301教室'。
     if (ks.length) return false;
 
     if (!nk || !nt) return false;
     if (nk === nt) return true;
 
-    // 普通关键词：保持原 includes 语义（文本包含查询），单字符不做包含以免误伤。
-    // 注意：这里刻意不做 nk.indexOf(nt) 的反向包含，与原前端行为一致。
+    // 普通关键词：双向子串包含。正向（文本含查询）保留原 includes 语义；
+    // 反向（查询含文本）覆盖"用户输完整地点、启事只写简称/片段"的情况，
+    // 例如查询"图书馆三楼自习室"命中文本"图书馆"，查询"万林艺术馆"命中"艺术楼"之外的
+    // 直写地点。两侧都要求长度 > 1，单字符不参与，避免"一 / 的"泛字误伤。
+    // 已知地点键的情况上面已提前返回，不会走到这里，故不会破坏"一教 ✗ 301教室"。
     if (nk.length > 1 && nt.indexOf(nk) !== -1) return true;
+    if (nt.length > 1 && nk.indexOf(nt) !== -1) return true;
     return false;
   }
 
@@ -325,6 +369,7 @@
   return {
     normalize: normalize,
     tokens: tokens,
+    fragmentKeys: fragmentKeys,
     matchText: matchText,
     matchLocation: matchLocation,
     matchItem: matchItem,

@@ -121,6 +121,20 @@ check('expandAliases：信部 展开为校区名列表',
 check('普通词：钱包 命中 黑色钱包', VmAlias.matchText('钱包', '黑色钱包'));
 check('普通词：不相关词不命中', !VmAlias.matchText('雨伞', '黑色钱包'));
 
+// ---- 通用部分关键字（PR：万林 → 万林艺术馆 / 艺术楼画室）----
+check('片段召回：万林 → 艺术楼键', VmAlias.fragmentKeys('万林').indexOf('艺术楼') !== -1,
+    JSON.stringify(VmAlias.fragmentKeys('万林')));
+check('片段召回：艺术博物馆 → 艺术楼键', VmAlias.fragmentKeys('艺术博物馆').indexOf('艺术楼') !== -1);
+check('部分关键字：万林 命中 艺术楼画室', VmAlias.matchLocation('万林', '艺术楼画室'));
+check('部分关键字：万林 命中 万林艺术馆', VmAlias.matchLocation('万林', '万林艺术馆'));
+check('部分关键字：艺术馆 命中 万林艺术博物馆', VmAlias.matchLocation('艺术馆', '万林艺术博物馆'));
+check('部分关键字：三楼自习 命中 图书馆三楼自习室', VmAlias.matchLocation('三楼自习', '图书馆三楼自习室'));
+check('双向子串：完整地点查询 命中 简称文本', VmAlias.matchText('图书馆三楼自习室', '图书馆'));
+check('片段召回不误伤：一教 不命中 301教室', !VmAlias.matchLocation('一教', '301教室'));
+check('片段召回不误伤：万林 不命中 图书馆', !VmAlias.matchLocation('万林', '图书馆三楼'));
+check('matchItem：万林 命中 location=艺术楼画室的启事',
+    VmAlias.matchItem('万林', { title: '蓝色水杯', location: '艺术楼画室', description: '', category: '其他' }));
+
 // matchItem 多字段
 check('matchItem：一教 命中 location=信息学部一教',
     VmAlias.matchItem('一教', { title: '钱包', location: '信息学部一教', description: '食堂捡到' }));
@@ -135,8 +149,13 @@ const server = read('server.js');
 check('server.js 引入 location-alias 模块', /require\(['"]\.\/public\/js\/location-alias['"]\)/.test(server));
 check('server.js 读取 q 查询参数', /const\s*\{[^}]*\bq\b[^}]*\}\s*=\s*req\.query/.test(server));
 check('server.js 用 matchItem 过滤', /locationAlias\.matchItem\(keyword,\s*item\)/.test(server));
+// 顺序要求：先 mapItem 拿全字段 → matchItem 用全字段匹配 → 最后 publicItem 脱敏输出。
+// 用分段断言而非单一超长窗口，避免中间新增坐标/半径逻辑就把窗口撑爆（历史误报）。
+const mapIdx = server.indexOf('rows.map(mapItem)');
+const matchIdx = server.indexOf('locationAlias.matchItem(keyword, item)');
+const pubIdx = server.indexOf('items.map(publicItem)');
 check('匹配在 publicItem 脱敏之前（先 mapItem 全字段、后 publicItem）',
-    /rows\.map\(mapItem\)[\s\S]{0,300}matchItem[\s\S]{0,200}items\.map\(publicItem\)/.test(server));
+    mapIdx !== -1 && matchIdx !== -1 && pubIdx !== -1 && mapIdx < matchIdx && matchIdx < pubIdx);
 check('公开列表仍只返回在架 active', /SELECT \* FROM items WHERE status = 'active'/.test(server));
 
 // ==================== 3. 网页 applyFilter 接线（vm 执行真实过滤） ====================
@@ -203,6 +222,15 @@ try {
     check('小程序目录可读', false, e.message);
 }
 if (mpApi) {
+    // 小程序端副本必须与网页/后端共享模块逐字节一致（忽略 CRLF），否则两端搜索行为会分叉。
+    try {
+        const mpAlias = mpRead('utils/location-alias.js');
+        const norm = s => s.replace(/\r\n/g, '\n').trim();
+        check('小程序 utils/location-alias.js 与共享模块一致', norm(mpAlias) === norm(moduleSrc));
+        check('小程序副本含片段召回 fragmentKeys', /function fragmentKeys/.test(mpAlias));
+    } catch (e) {
+        check('小程序 utils/location-alias.js 与共享模块一致', false, e.message);
+    }
     check('api.getItems 支持 q 参数', /getItems:\s*function\s*\(type,\s*q\)/.test(mpApi));
     check('api.getItems 用 encodeURIComponent 拼 q', /q='\s*\+\s*encodeURIComponent/.test(mpApi));
     check('index.js 有关键词状态', /keyword:\s*''/.test(mpJs));
