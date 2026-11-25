@@ -23,6 +23,7 @@ const JS_DIR = path.join(PUBLIC, 'js');
 const MAP_FILE = path.join(JS_DIR, 'campus-map.js');
 const PUB_HTML = path.join(PUBLIC, 'publish.html');
 const HM_HTML = path.join(PUBLIC, 'heatmap.html');
+const ADMIN_HTML = path.join(PUBLIC, 'admin.html');
 
 const results = [];
 function check(name, ok, detail) {
@@ -33,6 +34,7 @@ function read(p) { return fs.readFileSync(p, 'utf8'); }
 const mapSrc = read(MAP_FILE);
 const pubSrc = read(PUB_HTML);
 const hmSrc = read(HM_HTML);
+const adminSrc = read(ADMIN_HTML);
 const M = require(MAP_FILE);
 
 console.log('寻物智联 · B1 地图合规落地验收\n');
@@ -269,15 +271,16 @@ const noFetch = async function () { return { ok: false, status: 404, json: async
     console.log('--- C. 静态合规红线 ---');
 
     const FORBIDDEN = /googleapis|google\.com\/maps|openstreetmap|osm\.org|mapbox|leafletjs|leaflet\b|bing\.com\/maps|apple\.com\/maps/i;
-    check('无境外/非合规底图服务商', !FORBIDDEN.test(mapSrc + pubSrc + hmSrc));
-    check('未照搬本地代理安全配置模板', !/_TMapSecurityConfig|securityConfig/i.test(mapSrc + pubSrc + hmSrc));
-    check('无本机/回环地址硬编码', !/(?:localhost|127\.0\.0\.1|0\.0\.0\.0)(?::\d+)?/i.test(mapSrc + pubSrc + hmSrc));
+    const ALL_PAGES = mapSrc + pubSrc + hmSrc + adminSrc;
+    check('无境外/非合规底图服务商', !FORBIDDEN.test(ALL_PAGES));
+    check('未照搬本地代理安全配置模板', !/_TMapSecurityConfig|securityConfig/i.test(ALL_PAGES));
+    check('无本机/回环地址硬编码', !/(?:localhost|127\.0\.0\.1|0\.0\.0\.0)(?::\d+)?/i.test(ALL_PAGES));
 
     // 外部 URL：只允许 SVG 命名空间；SDK 地址不得写死在前端业务代码
-    const extUrls = (mapSrc + pubSrc + hmSrc).match(/https?:\/\/[^\s"'`)<>]+/gi) || [];
+    const extUrls = ALL_PAGES.match(/https?:\/\/[^\s"'`)<>]+/gi) || [];
     const badUrls = extUrls.filter(u => !/w3\.org/i.test(u));
     check('业务代码无写死的外部 SDK 地址（SDK 由后端下发）', badUrls.length === 0, badUrls.slice(0, 4).join(' | '));
-    check('无明文可用 key（只校验不保存）', !/key\s*[:=]\s*['"][A-Za-z0-9]{16,}['"]/i.test(mapSrc + pubSrc + hmSrc));
+    check('无明文可用 key（只校验不保存）', !/key\s*[:=]\s*['"][A-Za-z0-9]{16,}['"]/i.test(ALL_PAGES));
     check('配置接口路径存在且由 apiUrl 取址', /\/api\/map\/config/.test(mapSrc) && /apiPath\(MAP_CONFIG_ENDPOINT\)/.test(mapSrc));
     check('SDK 域名白名单校验存在', /MAP_ALLOWED_HOST/.test(mapSrc) && /host-not-allowed/.test(mapSrc));
 
@@ -301,6 +304,15 @@ const noFetch = async function () { return { ok: false, status: 404, json: async
     check('热力图有降级可见提示', /id="hmMapNotice"/.test(hmSrc) && /onHeatmapMode/.test(hmSrc));
     check('热力图老数据强制回退判断', /forceSvg:\s*!hasGeo/.test(hmSrc));
     check('两页都引入统一地图组件', /js\/campus-map\.js/.test(pubSrc) && /js\/campus-map\.js/.test(hmSrc));
+
+    // 管理端热力图：同一套真实地图组件，禁止回到自绘假坐标示意图
+    check('管理端引入统一地图组件', /js\/campus-map\.js/.test(adminSrc));
+    check('管理端热力图使用统一组件挂载', /CampusMapGL\.mount\(host/.test(adminSrc) && /onAdminHeatMode/.test(adminSrc));
+    check('管理端已移除自绘假坐标 Canvas', !/id="heatmapCanvas"/.test(adminSrc) && !/\/ 1000\) \* \(W - 48\)/.test(adminSrc));
+    check('管理端热力数据经字段白名单过滤', /normalizeHeatItems\(raw\)/.test(adminSrc));
+    check('管理端老数据/无经纬度强制回退', /forceSvg:\s*!hasGeo/.test(adminSrc));
+    check('管理端有降级可见提示', /id="adminHeatNotice"/.test(adminSrc) && /ADMIN_HEAT_FALLBACK_TEXT/.test(adminSrc));
+    check('管理端导出图按经纬度聚合且不含底图', /aggregateHeatPoints\(geo\)/.test(adminSrc) && /不含底图/.test(adminSrc));
 
     // ---------- 汇总 ----------
     let pass = 0;
