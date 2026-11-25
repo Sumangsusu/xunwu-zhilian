@@ -2,7 +2,8 @@
 // 批量植入 50 条校园失物/招领演示启事（幂等，可重复执行）
 // 用法：node seed-items.js
 // 重复运行会先删除 publisher='__seed50__' 的旧记录再插入，不会产生重复数据。
-// 每条含地图坐标(mapX/mapY)、部分含防冒领问答(quiz)，图片循环复用现有 12 张。
+// 每条含地图坐标(mapX/mapY)、部分含防冒领问答(quiz)；图片按「物品种类+颜色」逐条精确绑定，
+// 实拍图匹配不上的使用 public/images/placeholder/ 下由 scripts/gen-placeholder-images.js 生成的示意占位图。
 // ============================================================
 const path = require('node:path');
 const fs = require('node:fs');
@@ -36,7 +37,25 @@ function coordFor(location) {
   };
 }
 
-// [type, title, category, color, location, description, reward, features, quiz?]
+// 图片路径常量：实拍图（与物品种类+颜色一致）与代码生成的示意占位图
+const IMG = {
+  walletBlack: '/images/item-1.jpg',      // 黑色皮质钱包
+  earbuds: '/images/item-2.jpg',          // 白色无线耳机
+  keysSilver: '/images/item-3.jpg',       // 银色钥匙串
+  thermosBlue: '/images/item-4.jpg',      // 蓝色保温杯
+  glasses: '/images/item-5.jpg',          // 黑框眼镜
+  cardBlue: '/images/item-6.jpg',         // 蓝色校园卡
+  umbrellaRed: '/images/item-7.jpg',      // 红色折叠伞
+  studentCard: '/images/item-8.jpg',      // 蓝色学生证
+  backpackBlack: '/images/item-9.jpg',    // 黑色双肩包
+  phone: '/images/item-10.jpg',           // 黑色手机
+  airpods: '/images/item-11.jpg',         // 白色 AirPods
+  walletBrown: '/images/item-12.jpg',     // 棕色短款钱包
+};
+const ph = (name) => `/images/placeholder/${name}.svg`;
+
+// [type, title, category, color, location, description, reward, features, quiz?, image]
+// image 明确写在本条数据里，杜绝「按序号循环」导致的图文错位。
 const q = (questions) => questions.map(([text, options, answer]) => ({ type: 'choice', q: text, options, answer }));
 const ROWS = [
   ['lost', '黑色软皮笔记本', '书籍文具', '黑色', '图书馆三楼', '黑色A5软皮笔记本，扉页写有名字，里面夹着一张课程表和一张便签。', '20元酬谢', ['黑色', '笔记本', '皮质']],
@@ -91,6 +110,63 @@ const ROWS = [
   ['found', '蓝色折叠雨伞', '其他物品', '蓝色', '教学楼B座门口', '捡到一把蓝色折叠伞，伞骨完好，伞柄末端有一个小挂绳。', '', ['蓝色', '雨伞', '折叠']]
 ];
 
+// 与 ROWS 严格同序的图片映射（50 项）。每项对应上面同序号的启事，已按「物品种类 + 颜色」逐条核对。
+const ROW_IMAGES = [
+  ph('notebook-black'),   // 0  黑色软皮笔记本
+  IMG.walletBlack,        // 1  黑色皮质钱包
+  ph('cable'),            // 2  白色苹果充电线
+  IMG.keysSilver,         // 3  银色钥匙串
+  IMG.cardBlue,           // 4  校园饭卡（蓝色）
+  IMG.thermosBlue,        // 5  蓝色保温杯
+  ph('umbrella-blue'),    // 6  蓝色折叠雨伞
+  IMG.studentCard,        // 7  学生卡（蓝色）
+  ph('earphone-wired'),   // 8  白色有线耳机
+  IMG.earbuds,            // 9  白色无线耳机
+  ph('glasses-case'),     // 10 黑色眼镜盒
+  IMG.umbrellaRed,        // 11 红色折叠雨伞
+  ph('usb-drive'),        // 12 银色U盘
+  IMG.glasses,            // 13 黑色边框眼镜
+  ph('student-id-red'),   // 14 学生证（红色封皮）
+  IMG.phone,              // 15 华为Mate60手机（黑色）
+  ph('scarf-red'),        // 16 红色针织围巾
+  ph('backpack-brown'),   // 17 棕色双肩包
+  ph('calculator'),       // 18 科学计算器
+  IMG.keysSilver,         // 19 一串宿舍钥匙（银色）
+  IMG.walletBrown,        // 20 棕色短款钱包
+  ph('scarf-gray'),       // 21 灰色羊毛围巾
+  ph('key-gold'),         // 22 宿舍门钥匙（金色）
+  IMG.cardBlue,           // 23 校园饭卡（蓝色）
+  ph('thermos-green'),    // 24 膳魔师保温杯（绿色）
+  ph('water-bottle'),     // 25 蓝色运动水杯
+  ph('tablet'),           // 26 iPad 平板电脑
+  IMG.airpods,            // 27 苹果 AirPods 耳机
+  IMG.backpackBlack,      // 28 黑色双肩背包
+  IMG.glasses,            // 29 黑框近视眼镜
+  ph('sweater'),          // 30 蓝色针织毛衣
+  ph('laptop-bag'),       // 31 联想笔记本电脑包
+  ph('dictionary'),       // 32 牛津英语词典
+  ph('keyboard'),         // 33 黑色机械键盘
+  ph('speaker'),          // 34 便携蓝牙音箱（红色）
+  ph('ring'),             // 35 银色尾戒
+  ph('bank-card'),        // 36 银行卡（绿色）
+  ph('notebook-green'),   // 37 绿色软皮笔记本
+  ph('cap'),              // 38 藏青色棒球帽
+  ph('bus-card'),         // 39 公交卡（黄色）
+  ph('cable'),            // 40 白色数据线
+  ph('umbrella-black'),   // 41 黑色三折雨伞
+  ph('id-card'),          // 42 居民身份证
+  ph('band'),             // 43 黑色运动手环
+  ph('umbrella-green'),   // 44 绿色折叠伞
+  ph('earrings'),         // 45 珍珠耳环一对
+  ph('pen'),              // 46 黑色签字笔
+  ph('watch'),            // 47 银色石英手表
+  ph('necklace'),         // 48 金色细项链
+  ph('umbrella-blue'),    // 49 蓝色折叠雨伞
+];
+if (ROW_IMAGES.length !== ROWS.length) {
+  throw new Error(`图片映射数量(${ROW_IMAGES.length})与启事数量(${ROWS.length})不一致，请检查！`);
+}
+
 // 幂等：先清除上次植入的数据
 const removed = db.prepare('DELETE FROM items WHERE publisher = ?').run(SEED_TAG).changes;
 
@@ -110,7 +186,7 @@ const run = db.transaction((rows) => {
     stmt.run({
       type, title, category, color, location, description, reward,
       date: new Date(Date.UTC(2026, 10, 23) - i * 2 * dayMs).toISOString().slice(0, 10),
-      image: `/images/item-${(i % 12) + 1}.jpg`,
+      image: ROW_IMAGES[i],
       contact: `演示联系 TEST-${1000 + i}`,
       features: JSON.stringify(features),
       publisher: SEED_TAG,
