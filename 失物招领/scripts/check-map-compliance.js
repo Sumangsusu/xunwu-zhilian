@@ -367,8 +367,10 @@ const noFetch = async function () { return { ok: false, status: 404, json: async
     check('定位点缩成点状而非饼状（core<=3 / SVG r<=3）',
         /const core = 2\.6/.test(mapSrc) && /r="2\.6" fill="#20304F"/.test(mapSrc));
     check('集中度由气象式底色色带表达（GL + SVG 双层）', /new T\.visualization\.Heat/.test(mapSrc) && /heat-wash-layer/.test(mapSrc) && /feGaussianBlur/.test(mapSrc));
-    check('底色带低透明、大模糊，透出底图（不再盖住地图）',
-        /gradientColor: \{[\s\S]{0,300}0\.24/.test(mapSrc) && /stdDeviation="34"/.test(mapSrc) && /Math\.min\(0\.22, 0\.05/.test(mapSrc));
+    check('底色带半透明可辨识、大模糊，透出底图（不再盖住地图）',
+        /gradientColor: \{[\s\S]{0,300}0\.46/.test(mapSrc) && /stdDeviation="34"/.test(mapSrc) && /Math\.min\(0\.34, 0\.10/.test(mapSrc));
+    check('密度采样半径足够大（约 300 米，避免权重全为 1 导致色带不可见）',
+        /const HEAT_GRID_DEG = 0\.003/.test(mapSrc) && /peak \* 0\.6/.test(mapSrc));
     check('散点标记携带真实启事 id（toMarkerData）', /function toMarkerData/.test(mapSrc) && /toMarkerData\(pts\)/.test(mapSrc));
     check('散点绑定 click 事件回传启事 id', /pinLayer\.on\('click'/.test(mapSrc) && /onMarkerClick\(id\)/.test(mapSrc));
     check('热力图页面把 onMarkerClick 接到 showItemDetail', /onMarkerClick:\s*function\s*\(id\)[\s\S]{0,60}showItemDetail/.test(hmSrc));

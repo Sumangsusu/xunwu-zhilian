@@ -750,12 +750,12 @@
             const h = String(hex).replace('#', '');
             return 'rgba(' + parseInt(h.slice(0, 2), 16) + ',' + parseInt(h.slice(2, 4), 16) + ',' + parseInt(h.slice(4, 6), 16) + ',' + a + ')';
         };
-        // 先铺气象式色带：更大半径、极低不透明度、边缘完全透明，连成柔和色带而非可见圆圈。
+        // 先铺气象式色带：更大半径、半透明、边缘完全透明，连成柔和色带而非可见圆圈。
         pts.forEach(p => {
             const x = px(p.lng), y = py(p.lat);
             const stop = heatStop(p.count);
-            const radius = 72 + Math.min(p.count, 10) * 12;
-            const alpha = Math.min(0.22, 0.05 + p.count * 0.02);
+            const radius = 90 + Math.min(p.count, 12) * 12;
+            const alpha = Math.min(0.34, 0.10 + p.count * 0.035);
             const g = ctx.createRadialGradient(x, y, 0, x, y, radius);
             g.addColorStop(0, rgba(stop.main, alpha));
             g.addColorStop(0.55, rgba(stop.main, alpha * 0.4));

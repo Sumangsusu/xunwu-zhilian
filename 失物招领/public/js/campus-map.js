@@ -52,21 +52,22 @@ const CAMPUS_ZONE_COLORS = {
 const MAP_ALLOWED_HOST = 'map.qq.com';
 // 地图容器固定高度（px）。flex 布局下不显式给高度会白屏。
 const MAP_GL_HEIGHT = 460;
-// 密度采样半径，约 50 米：仅用于计算「某点周围有多密集」以决定该点的热力渐变颜色，
+// 密度采样半径，约 300 米（武大尺度下一个功能区量级）：仅用于计算「某点周围有多密集」
+// 以决定该点的热力渐变权重。半径太小会让 50 条散点的邻居数全是 1，热力层归一化后近乎透明、看不出色带。
 // 不再把多条启事合并成一个点。每条启事保留自己的真实坐标与 id，可点击打开详情。
-const HEAT_GRID_DEG = 0.0005;
+const HEAT_GRID_DEG = 0.003;
 // 后端下发地图配置的接口（由 A 的部署侧实现；仓库内只有接口路径，没有 key）
 const MAP_CONFIG_ENDPOINT = '/api/map/config';
 
 // ===== 热力视觉：气象式底色色带（降水量 / 气温分布图观感） =====
 // 4 档色阶沿用气象惯用的冷到暖：青绿(稀疏) → 黄(一般) → 橙(集中) → 玫红(高发)。
-// 色值只用于「低透明度、边缘柔和、彼此连片」的底色带（GL Heat / SVG 模糊色带 / PNG 导出），
-// 不画在定位小点上；wash alpha 刻意压低，保证底图路网 / 地名清晰透出，不再盖住地图。
+// 色值只用于「半透明、边缘柔和、彼此连片」的底色带（GL Heat / SVG 模糊色带 / PNG 导出），
+// 不画在定位小点上。wash alpha 取中等值：太高压住底图、太低（上一版 0.06）肉眼看不出色带。
 const HEAT_STOPS = [
-  { key: 'low', name: '稀疏', main: '#0E9F8E', light: '#5EEAD4', dark: '#0B6E63', wash: 0.14 },
-  { key: 'mid', name: '一般', main: '#EAB308', light: '#FDE047', dark: '#A16207', wash: 0.17 },
-  { key: 'high', name: '集中', main: '#EA580C', light: '#FDBA74', dark: '#9A3412', wash: 0.21 },
-  { key: 'peak', name: '高发', main: '#E11D48', light: '#FDA4AF', dark: '#9F1239', wash: 0.25 }
+  { key: 'low', name: '稀疏', main: '#0E9F8E', light: '#5EEAD4', dark: '#0B6E63', wash: 0.20 },
+  { key: 'mid', name: '一般', main: '#EAB308', light: '#FDE047', dark: '#A16207', wash: 0.25 },
+  { key: 'high', name: '集中', main: '#EA580C', light: '#FDBA74', dark: '#9A3412', wash: 0.30 },
+  { key: 'peak', name: '高发', main: '#E11D48', light: '#FDA4AF', dark: '#9F1239', wash: 0.34 }
 ];
 // 按聚合条数取色阶档位（1-2 / 3-4 / 5-6 / 7+）
 function heatStop(count) {
@@ -367,12 +368,12 @@ function renderSvgHeat(overlay, items, onMarkerClick) {
     return { id: Number(i.id), x: Number(i.mapX), y: Number(i.mapY), type: i.type, density: Math.max(1, density) };
   });
 
-  // 底色层：模仿降水 / 气温分布图——更大半径、极低不透明度、大尺度高斯模糊，
+  // 底色层：模仿降水 / 气温分布图——更大半径、半透明、大尺度高斯模糊，
   // 让相邻色块连成一整片柔和色带并透出底图路网，不出现可见的圆圈边界。
   const wash = pts.map(function (p) {
     const stop = heatStop(p.density);
-    const radius = 95 + Math.min(p.density, 10) * 9;
-    const alpha = Math.min(0.22, 0.05 + p.density * 0.022);
+    const radius = 110 + Math.min(p.density, 12) * 10;
+    const alpha = Math.min(0.34, 0.10 + p.density * 0.035);
     return `<circle class="heat-wash" cx="${p.x}" cy="${p.y}" r="${radius}" fill="${stop.main}" opacity="${alpha.toFixed(2)}" pointer-events="none"/>`;
   }).join('');
 
@@ -630,20 +631,20 @@ function renderSvgHeat(overlay, items, onMarkerClick) {
         });
         handle.update = function () { return 0; };
       } else {
-        // 气象式底色带：半径加大、透明度整体压低，让相邻热区连成一整片柔和色带，
-        // 底图路网 / 地名始终清晰透出（类似降水量 / 气温分布图），不再盖住原地图。
-        // max 按当前峰值动态调整，避免权重被固定上限压到透明区。
+        // 气象式底色带：半径加大、alpha 取中等值，让相邻热区连成一整片可见的柔和色带，
+        // 同时保留约一半透明度让底图路网 / 地名透出（类似降水量 / 气温分布图）。
+        // 上一版峰值 alpha 只有 0.24、密度权重又集中在 1-2，归一化后几乎全透明，等于没染色。
         const heat = new T.visualization.Heat({
           map: map,
-          radius: 62,
+          radius: 72,
           max: 6,
           min: 0,
-          // 渐变起点完全透明、低值段极低不透明度、只在峰值给出稍重的暖色：
-          // 稀疏青绿 -> 一般黄 -> 集中橙 -> 高发玫红，全程 alpha <= 0.24 保证底图可见。
+          // 渐变起点完全透明，随后快速进入可见区；稀疏青绿 -> 一般黄 -> 集中橙 -> 高发玫红。
+          // 峰值 alpha 0.46：足以一眼看出色带，又不至于盖住底图。
           gradientColor: {
-            0: 'rgba(14,159,142,0)', 0.25: 'rgba(14,159,142,0.06)',
-            0.5: 'rgba(234,179,8,0.11)', 0.75: 'rgba(234,88,12,0.18)',
-            1: 'rgba(225,29,72,0.24)'
+            0: 'rgba(14,159,142,0)', 0.18: 'rgba(14,159,142,0.16)',
+            0.4: 'rgba(234,179,8,0.26)', 0.68: 'rgba(234,88,12,0.36)',
+            1: 'rgba(225,29,72,0.46)'
           }
         });
         handle.heat = heat;
@@ -683,7 +684,8 @@ function renderSvgHeat(overlay, items, onMarkerClick) {
           // 热力强度上限跟随密度峰值：没有热点时也不至于把全部数据压成透明
           const peak = pts.reduce(function (m, p) { return Math.max(m, p.count || 0); }, 0);
           if (typeof heat.setMax === 'function' && peak > 0) {
-            try { heat.setMax(Math.max(3, peak)); } catch (e) { /* 老版本 SDK 无 setMax，忽略 */ }
+            // 用峰值的一部分作为上限：中密度点也能落到渐变中段，而不是全被压在透明起点附近
+            try { heat.setMax(Math.max(3, Math.ceil(peak * 0.6))); } catch (e) { /* 老版本 SDK 无 setMax，忽略 */ }
           }
 
           // 定位小点：每条启事一个点，id 为真实启事 id，统一 dot 样式（不按密度着色）
