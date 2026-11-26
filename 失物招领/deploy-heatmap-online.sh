@@ -21,6 +21,7 @@ grep -q "onMarkerClick" "$SRC/public/admin.html" || { echo "FATAL: admin.html �
 # 后端坐标局部插值：确保同地点多条启事不再折叠到同一坐标（50 条 -> 14 坐标的修复）
 grep -q "const offX = Number(svg.mapX) - Number(zone.mapX)" "$SRC/coordinates.js" || { echo "FATAL: coordinates.js 非局部插值版（仍会坐标重叠）"; exit 3; }
 grep -q "Math.round(lng \* 1e6) / 1e6" "$SRC/coordinates.js" || { echo "FATAL: coordinates.js 无插值坐标量化"; exit 3; }
+grep -q "toFixed(5)" "$SRC/server.js" || { echo "FATAL: server.js heatmap 接口仍截断坐标到 3 位（会折叠重叠）"; exit 3; }
 CID=$(docker ps -q -f name=xunwu-zhilian-app | head -1)
 [ -z "$CID" ] && CID=$(docker ps --format '{{.ID}} {{.Names}}' | grep -iE 'xunwu|xunw' | head -1 | awk '{print $1}')
 echo "CID=$CID"
@@ -31,12 +32,14 @@ for f in js/campus-map.js heatmap.html admin.html; do
   docker cp "$DST/public/$f" "$CID:/app/public/$f"
   echo "deployed $f"
 done
-# 后端坐标映射：与 server.js 同级的 coordinates.js（不在 public 下）
-test -f "$SRC/coordinates.js" && test -f "$DST/coordinates.js"
-cp -f "$DST/coordinates.js" "$DST/coordinates.js.bak-disperse" 2>/dev/null || true
-cp -f "$SRC/coordinates.js" "$DST/coordinates.js"
-docker cp "$DST/coordinates.js" "$CID:/app/coordinates.js"
-echo "deployed coordinates.js"
+# 后端坐标映射：与 server.js 同级的 coordinates.js / server.js（不在 public 下）
+for bf in coordinates.js server.js; do
+  test -f "$SRC/$bf" && test -f "$DST/$bf"
+  cp -f "$DST/$bf" "$DST/$bf.bak-disperse" 2>/dev/null || true
+  cp -f "$SRC/$bf" "$DST/$bf"
+  docker cp "$DST/$bf" "$CID:/app/$bf"
+  echo "deployed $bf"
+done
 docker restart "$CID" >/dev/null
 sleep 8
 echo "=== HEALTH ==="

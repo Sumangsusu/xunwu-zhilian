@@ -500,14 +500,25 @@ app.post('/api/matches/seen', authRequired, (req, res) => {
   return res.json({ success: true, updated: info.changes });
 });
 
-// 对仍未回填的旧数据沿用地点推断，支持独立发布经纬度的客户端。
+// 地图散点专用接口：每条启事一个独立坐标。
+// 注意：这里刻意不使用 publicItem() 的 toFixed(3) 截断——百米级精度会把同一功能区的
+// 多条启事折叠成同一个坐标（50 条只显示十几个点）。coordinates() 已在功能区锚点内
+// 按 mapX/mapY 做局部插值（约 2 米/SVG 单位、5 位小数、偏差 <150 米），仍是"功能区级
+// 近似位置"而非实测精确坐标；联系方式/图片/描述/问答依旧不进入本接口。
 app.get('/api/items/heatmap', (_req, res) => {
   const rows = db.prepare("SELECT * FROM items WHERE status = 'active'").all();
   const items = rows.map(mapItem).map((item) => ({ ...item, ...coordinates(item) }))
     .filter((item) => item.mapX != null || item.lng != null)
     .map((item) => {
-      const { id, type, title, location, date, mapX, mapY, lng, lat } = publicItem(item);
-      return { id, type, title, location, date, mapX, mapY, lng, lat };
+      // 只输出白名单字段，坐标保留 5 位小数（约 1 米级显示精度，仍落在功能区内）
+      const lng = item.lng == null ? null : Number(Number(item.lng).toFixed(5));
+      const lat = item.lat == null ? null : Number(Number(item.lat).toFixed(5));
+      return {
+        id: item.id, type: item.type, title: item.title,
+        location: item.location, date: item.date,
+        mapX: item.mapX, mapY: item.mapY,
+        lng: lng, lat: lat
+      };
     });
   return res.json({ success: true, items });
 });

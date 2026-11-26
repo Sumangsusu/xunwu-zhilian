@@ -8,7 +8,9 @@
 'use strict';
 
 const path = require('node:path');
+const fs = require('node:fs');
 const ROOT = path.join(__dirname, '..');
+function read(rel) { return fs.readFileSync(path.join(ROOT, rel), 'utf8'); }
 
 // 在可控环境下加载后端模块，屏蔽本机 .env 的生产校验干扰。
 process.env.NODE_ENV = 'test';
@@ -69,6 +71,15 @@ check('50 条启事生成 50 个独立坐标（地图标记数=启事数）', un
 // 6. 无 mapX/mapY 且无真实坐标时仍安全回退，不抛异常
 const bare = coordinates({ mapX: null, mapY: null, lng: null, lat: null, location: '' });
 check('无坐标数据安全回退', bare.lng === null && bare.lat === null);
+
+// 7. 热力图接口不得用 publicItem 的 toFixed(3) 截断（否则 5 位插值坐标又被折叠）
+const serverSrc = read('server.js');
+check('heatmap 接口绕开 toFixed(3) 坐标截断', /app\.get\('\/api\/items\/heatmap'/.test(serverSrc) &&
+  /toFixed\(5\)/.test(serverSrc));
+check('heatmap 接口坐标走 coordinates() 局部插值', /rows\.map\(mapItem\)\.map\(\(item\) => \(\{ \.\.\.item, \.\.\.coordinates\(item\) \}\)\)/.test(serverSrc));
+const dbSrc = read('db.js');
+check('其他接口维持 toFixed(3) 隐私口径（只 heatmap 提高精度）',
+  /lng: item\.lng == null \? null : Number\(item\.lng\.toFixed\(3\)\)/.test(dbSrc));
 
 console.log('\n=== 结果：通过 ' + pass + ' / 失败 ' + fail + ' ===');
 process.exit(fail ? 1 : 0);
