@@ -635,15 +635,23 @@ app.post('/api/items', authRequired, publishLimit, (req, res) => {
   const cleanQuiz = normalized.quiz;
   const cleanAttempts = normalized.attempts;
 
-  // 旧版发布表单以字符串提交 SVG 坐标。
-  const numericSvg = (value) => typeof value === 'string' && value.trim() ? Number(value) : value;
-  const x = numericSvg(mapX);
-  const y = numericSvg(mapY);
+  // 发布表单（网页 input.value / 小程序表单）可能以字符串提交坐标；
+  // validPair 用 Number.isFinite，字符串一律 false，必须先转成数字再校验，
+  // 否则 GL 选点回填的 GCJ-02 真实坐标会被误判为「坐标必须成对提供且在有效范围内」。
+  // 空串视为未提供（null），非法字符串保留为 NaN 交由 validPair 拦截。
+  const numericCoord = (value) => {
+    if (value === '') return null;
+    return typeof value === 'string' && value.trim() ? Number(value) : value;
+  };
+  const x = numericCoord(mapX);
+  const y = numericCoord(mapY);
+  const geoLng = numericCoord(lng);
+  const geoLat = numericCoord(lat);
   if (((x != null || y != null) && !validPair(x, y, 0, 1000, 0, 700)) ||
-      ((lng != null || lat != null) && !validPair(lng, lat, -180, 180, -90, 90))) {
+      ((geoLng != null || geoLat != null) && !validPair(geoLng, geoLat, -180, 180, -90, 90))) {
     return res.status(400).json({ success: false, message: '坐标必须成对提供且在有效范围内' });
   }
-  const point = coordinates({ mapX: x, mapY: y, lng, lat, location });
+  const point = coordinates({ mapX: x, mapY: y, lng: geoLng, lat: geoLat, location });
   let decoded;
   try {
     if (image != null && image !== '') decoded = readImage(image);

@@ -706,6 +706,15 @@ profile.html
 
                 const currentUser = UserDB.getCurrent();
 
+                // input.value 恒为字符串；后端 validPair 只认数字，提交前显式转成 Number，
+                // 避免 GL 选点回填的真实经纬度被误判为「坐标格式错误」。空值/非法值按未提供处理。
+                const coordNumber = (id) => {
+                    const raw = document.getElementById(id).value;
+                    if (raw === '' || raw == null) return null;
+                    const n = Number(raw);
+                    return Number.isFinite(n) ? n : null;
+                };
+
                 const newItem = {
                     type: currentPublishType,
                     title: document.getElementById('itemTitle').value,
@@ -717,10 +726,10 @@ profile.html
                     description: document.getElementById('itemDesc').value,
                     contact: document.getElementById('itemContact').value,
                     reward: document.getElementById('itemReward').value,
-                    mapX: document.getElementById('itemMapX').value || null,
-                    mapY: document.getElementById('itemMapY').value || null,
-                    lng: document.getElementById('itemLng').value || null,
-                    lat: document.getElementById('itemLat').value || null,
+                    mapX: coordNumber('itemMapX'),
+                    mapY: coordNumber('itemMapY'),
+                    lng: coordNumber('itemLng'),
+                    lat: coordNumber('itemLat'),
                     features: window.RecognizeDraft.parseFeatures(document.getElementById('itemFeatures').value),
                     publisher: currentUser ? currentUser.username : '匿名'
                 };

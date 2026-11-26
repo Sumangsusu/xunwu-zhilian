@@ -129,8 +129,10 @@ async function main() {
             contact: CONTACT,
             reward: '',
             features: ['验收'],
-            mapX: 420, mapY: 210,
-            lng: 114.36, lat: 30.53,
+            // 用字符串坐标模拟网页 input.value / 小程序表单值（真实提交路径）：
+            // 后端必须转数字后再校验，否则 GL 选点坐标会被误判「坐标格式错误」。
+            mapX: '420', mapY: '210',
+            lng: '114.36', lat: '30.53',
             quiz: [{ q: '内侧刻了什么字？', options: ['无', '珞珈', '星河'], answer: 1 }]
         }
     });
@@ -140,6 +142,12 @@ async function main() {
     check('返回启事 id', Number.isInteger(id));
     check('双写坐标入库（lng/lat + mapX/mapY）',
         !!(pub.data && pub.data.item && pub.data.item.lng != null && pub.data.item.mapX != null));
+    check('字符串坐标被转为数字入库（网页选点回归）',
+        !!(pub.data && pub.data.item &&
+           Math.abs(pub.data.item.lng - 114.36) < 1e-6 &&
+           Math.abs(pub.data.item.lat - 30.53) < 1e-6 &&
+           pub.data.item.mapX === 420 && pub.data.item.mapY === 210),
+        JSON.stringify({ lng: pub.data && pub.data.item && pub.data.item.lng, mapX: pub.data && pub.data.item && pub.data.item.mapX }));
     if (!Number.isInteger(id)) { return finish(); }
 
     // ---------- 3. 换普通账号看详情：打码 + 答题卡 ----------

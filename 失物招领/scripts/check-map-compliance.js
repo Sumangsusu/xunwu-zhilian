@@ -439,7 +439,12 @@ const noFetch = async function () { return { ok: false, status: 404, json: async
     check('降级链路覆盖多种失败原因', (mapSrc.match(/return fallback\(/g) || []).length >= 6);
     check('自绘 SVG 降级方案保留（未整套删除）', /function campusMapMarkup/.test(mapSrc) && /campusMapMarkup\(\)/.test(mapSrc));
 
-    check('发布页双写 lng/lat + mapX/mapY', /lng:\s*document\.getElementById\('itemLng'\)/.test(pubSrc) && /lat:\s*document\.getElementById\('itemLat'\)/.test(pubSrc) && /mapX:\s*document\.getElementById\('itemMapX'\)/.test(pubSrc));
+    check('发布页双写 lng/lat + mapX/mapY（提交前转数字）',
+        /lng:\s*coordNumber\('itemLng'\)/.test(pubSrc) &&
+        /lat:\s*coordNumber\('itemLat'\)/.test(pubSrc) &&
+        /mapX:\s*coordNumber\('itemMapX'\)/.test(pubSrc) &&
+        /mapY:\s*coordNumber\('itemMapY'\)/.test(pubSrc) &&
+        /Number\.isFinite\(n\)/.test(pubSrc));
     check('发布页地点文字字段保留', /id="itemLocation"/.test(pubSrc));
     check('发布页 B3 字段未被覆盖', /id="itemColor"/.test(pubSrc) && /id="itemFeatures"/.test(pubSrc) && /applyRecognizeDraft/.test(pubSrc));
     check('发布页有降级可见提示', /id="publishMapNotice"/.test(pubSrc) && /onPublishMapMode/.test(pubSrc));
