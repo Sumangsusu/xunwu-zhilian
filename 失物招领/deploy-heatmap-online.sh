@@ -8,7 +8,8 @@ echo "SRC=$SRC"
 echo "DST=$DST"
 test -f "$SRC/public/js/campus-map.js"
 test -f "$DST/server.js"
-grep -q "toMarkerData" "$SRC/public/js/campus-map.js" || { echo "FATAL: 源码非散点版"; exit 3; }
+grep -q "heat-wash-layer" "$SRC/public/js/campus-map.js" || { echo "FATAL: 源码非底色渐变版"; exit 3; }
+grep -q "styleId: 'dot'" "$SRC/public/js/campus-map.js" || { echo "FATAL: 源码非统一定位小点版"; exit 3; }
 grep -q "onMarkerClick" "$SRC/public/heatmap.html" || { echo "FATAL: heatmap.html 非散点版"; exit 3; }
 grep -q "onMarkerClick" "$SRC/public/admin.html" || { echo "FATAL: admin.html 非散点版"; exit 3; }
 CID=$(docker ps -q -f name=xunwu-zhilian-app | head -1)
@@ -16,7 +17,7 @@ CID=$(docker ps -q -f name=xunwu-zhilian-app | head -1)
 echo "CID=$CID"
 test -n "$CID"
 for f in js/campus-map.js heatmap.html admin.html; do
-  cp -f "$DST/public/$f" "$DST/public/$f.bak-scatter" 2>/dev/null || true
+  cp -f "$DST/public/$f" "$DST/public/$f.bak-dotwash" 2>/dev/null || true
   cp -f "$SRC/public/$f" "$DST/public/$f"
   docker cp "$DST/public/$f" "$CID:/app/public/$f"
   echo "deployed $f"
@@ -27,6 +28,7 @@ echo "=== HEALTH ==="
 curl -sS --max-time 10 http://127.0.0.1/health
 echo ""
 echo "=== ONLINE CHECK ==="
-curl -sS --max-time 10 http://127.0.0.1/js/campus-map.js | grep -o "toMarkerData" | head -1
+curl -sS --max-time 10 http://127.0.0.1/js/campus-map.js | grep -o "heat-wash-layer" | head -1
+curl -sS --max-time 10 http://127.0.0.1/js/campus-map.js | grep -o "styleId: 'dot'" | head -1
 curl -sS --max-time 10 http://127.0.0.1/heatmap.html | grep -o "onMarkerClick" | head -1
 echo "=== DEPLOY_DONE ==="

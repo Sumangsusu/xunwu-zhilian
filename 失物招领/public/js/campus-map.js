@@ -6,9 +6,10 @@
 //     前端仓库只保留占位符与域名白名单校验，不出现任何可用 key 或写死的外部地址；
 //   - 坐标系 GCJ-02：SDK 事件返回的 latLng 直接入库，不做坐标系转换，
 //     也不把 WGS-84 / BD-09 喂给 SDK（否则点位整体偏移）；
-//   - 热力图采用「分散标点 + 渐变热力色」：每条启事一个独立标点（携带真实坐标与 id，
-//     点击可打开对应启事），热力层的颜色由邻域密度决定，越集中越暖；进入前端的数据先做
-//     字段白名单，联系方式、图片、描述、防冒领问答一律不进入页面全局对象；
+//   - 热力图采用「小点定位 + 底色渐变」：每条启事只画一个不遮挡底图的小圆点（携带真实
+//     坐标与 id，点击可打开对应启事）；集中程度完全由地图底色的热力渐变层表达，标记本身
+//     不再叠加外晕/计数圆圈。进入前端的数据先做字段白名单，联系方式、图片、描述、防冒领
+//     问答一律不进入页面全局对象；
 //   - 地图容器使用固定像素高度，避免 flex 布局下高度为 0 导致白屏；
 //   - 不自绘国界、不改官方底图标注；不使用预览环境的运行时代理模板；
 //   - 官方真实 API：TMap.Map / TMap.LatLng / TMap.MultiMarker / TMap.MarkerStyle /
@@ -57,9 +58,9 @@ const HEAT_GRID_DEG = 0.0005;
 // 后端下发地图配置的接口（由 A 的部署侧实现；仓库内只有接口路径，没有 key）
 const MAP_CONFIG_ENDPOINT = '/api/map/config';
 
-// ===== 热力视觉：密度色阶 =====
-// 不再是单调的中心点 + 橙色圆圈：按聚合条数分 4 档，低密度冷色（青绿）、高密度暖色（玫红），
-// 每一档都带主色/亮色/暗色，供 SVG 径向渐变与标记徽章共用，保证 GL / SVG / 导出图视觉一致。
+// ===== 热力视觉：底色密度色阶 =====
+// 不再是单调的中心点 + 橙色圆圈：按邻域条数分 4 档，低密度冷色（青绿）、高密度暖色（玫红），
+// 色值只用于地图底色的热力渐变层（GL Heat / SVG 模糊色带 / PNG 导出），不画在定位小点上。
 const HEAT_STOPS = [
   { key: 'low', name: '稀疏', main: '#0E9F8E', light: '#5EEAD4', dark: '#0B6E63', glow: 'rgba(14,159,142,0.16)' },
   { key: 'mid', name: '一般', main: '#EAB308', light: '#FDE047', dark: '#A16207', glow: 'rgba(234,179,8,0.18)' },
@@ -152,9 +153,9 @@ function normalizeHeatItems(items) {
 
 /**
  * 分散标点 + 密度权重：每条启事保留自己的真实坐标与 id（可点击打开对应启事），
- * 同时计算它周边 HEAT_GRID_DEG 半径内的邻居条数作为 count —— 热力层据此上色，
- * 越集中的点位 count 越高、颜色越暖，实现「渐变颜色反映集中程度」。
- * 不再把多条启事合并成一个网格中心点。
+ * 同时计算它周边 HEAT_GRID_DEG 半径内的邻居条数作为 count —— 地图底色的热力层据此
+ * 上色，越集中的区域颜色越暖，实现「底色渐变反映集中程度」。
+ * 小点本身不带颜色/外晕，只承担定位；也不把多条启事合并成一个网格中心点。
  */
 function aggregateHeatPoints(items, gridDeg) {
   const g = Number(gridDeg) > 0 ? Number(gridDeg) : HEAT_GRID_DEG;
@@ -316,6 +317,9 @@ function campusMapMarkup() {
     </g>`;
   }).join('');
   return `<svg class="campus-map-svg w-full h-auto" viewBox="0 0 ${CAMPUS_MAP_W} ${CAMPUS_MAP_H}" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">
+    <defs><filter id="heatBlur" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="22"/>
+    </filter></defs>
     <rect width="${CAMPUS_MAP_W}" height="${CAMPUS_MAP_H}" fill="#EDF2EC"/>
     ${roads}
     ${zones}
@@ -338,10 +342,10 @@ function campusSvgPoint(svgEl, clientX, clientY) {
 }
 
 /**
- * SVG 模式的分散标点热力图。
- * 每条启事一个独立标点（在示意图坐标 x/y 上），外晕颜色按邻域密度取色（越集中越暖），
- * 每个标点带 data-id，点击回调 onMarkerClick(id) 打开对应启事。
- * 不再把多条启事合并成一个计数徽章。保留 <circle> 供合规脚本校验。
+ * SVG 模式的热力图（降级底图）。
+ * 两层结构：先画一整片按密度着色的柔和底色（filter 模糊后连成渐变，不出现可见圆圈），
+ * 再在每条启事位置画一个统一的小圆点，只负责定位与点击，不叠加外晕/计数徽章。
+ * 每个标点带 data-id/data-density，点击回调 onMarkerClick(id) 打开对应启事。
  * @param {Element} overlay 覆盖层
  * @param {Array} items 已归一化数据（含 mapX/mapY/id/type）
  * @param {Function} [onMarkerClick] 点击标点回调，传启事 id
@@ -362,25 +366,23 @@ function renderSvgHeat(overlay, items, onMarkerClick) {
     return { id: Number(i.id), x: Number(i.mapX), y: Number(i.mapY), type: i.type, density: Math.max(1, density) };
   });
 
-  const stops = HEAT_STOPS;
-  const defs = `<defs>${stops.map(function (s, si) {
-    return `<radialGradient id="heatG${si}" cx="34%" cy="28%" r="76%">
-      <stop offset="0%" stop-color="${s.light}"/><stop offset="55%" stop-color="${s.main}"/><stop offset="100%" stop-color="${s.dark}"/>
-    </radialGradient>`;
-  }).join('')}</defs>`;
-
-  const marks = pts.map(function (p) {
+  // 底色层：密度越高，色块半径与不透明度越大；高斯模糊把相邻色块连成一片连续色带，
+  // 视觉上是「地图背景整体变色」，而不是每个点外面套一个可见圆圈。
+  const wash = pts.map(function (p) {
     const stop = heatStop(p.density);
-    const si = Math.max(0, stops.indexOf(stop));
-    const halo = 14 + Math.min(p.density, 8) * 2.6; // 外晕随密度增大
-    const core = 7;                                  // 小圆点半径，不遮挡底图
-    return `<g class="heat-dot" data-id="${p.id}" data-type="${p.type}" style="cursor:pointer">
-      <circle cx="${p.x}" cy="${p.y}" r="${halo}" fill="${stop.main}" opacity="0.16"/>
-      <circle cx="${p.x}" cy="${p.y}" r="${core}" fill="url(#heatG${si})" stroke="#ffffff" stroke-width="2"/>
-      <title>启事 #${p.id} · 周边 ${p.density} 条 · 点击查看</title>
+    const radius = 70 + Math.min(p.density, 10) * 7;
+    const alpha = Math.min(0.40, 0.10 + p.density * 0.035);
+    return `<circle class="heat-wash" cx="${p.x}" cy="${p.y}" r="${radius}" fill="${stop.main}" opacity="${alpha.toFixed(2)}" pointer-events="none"/>`;
+  }).join('');
+
+  // 定位层：统一的小圆点（深墨色 + 白描边），颜色不承载密度信息，避免与底色渐变重复。
+  const marks = pts.map(function (p) {
+    return `<g class="heat-dot" data-id="${p.id}" data-type="${p.type}" data-density="${p.density}" style="cursor:pointer">
+      <circle cx="${p.x}" cy="${p.y}" r="4.5" fill="#20304F" stroke="#ffffff" stroke-width="1.6"/>
+      <title>启事 #${p.id} · 点击查看</title>
     </g>`;
   }).join('');
-  overlay.innerHTML = defs + marks;
+  overlay.innerHTML = `<g class="heat-wash-layer" filter="url(#heatBlur)" pointer-events="none">${wash}</g>` + marks;
 
   // 事件委托：给每个标点绑定点击（SVG g 元素在 innerHTML 重绘后需重新绑定）
   if (typeof onMarkerClick === 'function' && typeof overlay.querySelectorAll === 'function') {
@@ -460,47 +462,30 @@ function renderSvgHeat(overlay, items, onMarkerClick) {
     '<circle cx="13" cy="13" r="3" fill="#ffffff"/></svg>';
 
   /**
-   * 分散标点样式：每条启事一个小圆点，颜色按「邻域密度档」取色（越集中越暖），
-   * 与热力渐变层语义一致。不再显示计数数字——密度由颜色渐变表达。
-   * 每条标点携带真实启事 id，点击打开对应详情。
-   * @param {number} density 邻域密度（该点周边启事数）
+   * 统一的小圆点样式：每条启事一个点，只表示「这里有一条启事」，
+   * 不带外晕、不带密度色、不带计数——集中度完全交给地图底色的热力渐变层表达。
+   * 图标画布留透明边距，保证 20px 点击区域的同时视觉上只是一个 4px 小点。
    */
-  function heatPinSvg(density) {
-    const stop = heatStop(density);
-    const size = 30;
+  function heatPinSvg() {
+    const size = 20;
     const c = size / 2;
-    const halo = 13;
-    const core = 7;
+    const core = 4;
     const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + size + '" height="' + size +
       '" viewBox="0 0 ' + size + ' ' + size + '">' +
-      '<defs><radialGradient id="g" cx="34%" cy="28%" r="76%">' +
-      '<stop offset="0%" stop-color="' + stop.light + '"/>' +
-      '<stop offset="55%" stop-color="' + stop.main + '"/>' +
-      '<stop offset="100%" stop-color="' + stop.dark + '"/></radialGradient></defs>' +
-      '<circle cx="' + c + '" cy="' + c + '" r="' + halo + '" fill="' + stop.main + '" fill-opacity="0.16"/>' +
-      '<circle cx="' + c + '" cy="' + c + '" r="' + core + '" fill="url(#g)" stroke="#ffffff" stroke-width="2"/>' +
+      '<circle cx="' + c + '" cy="' + c + '" r="' + core + '" fill="#20304F" stroke="#ffffff" stroke-width="1.4"/>' +
       '</svg>';
     return { size: size, src: 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg) };
   }
 
-  // 密度档样式：d1=稀疏 … d4=高发。取档逻辑与 heatStop 一致（1-2/3-4/5-6/7+）。
-  function densityStyleKey(density) {
-    const n = Math.max(1, Number(density) || 1);
-    return 'd' + (n >= 7 ? 4 : (n >= 5 ? 3 : (n >= 3 ? 2 : 1)));
-  }
-
   function buildHeatMarkerStyles(T) {
-    const styles = {};
-    // 每档用该档的代表密度值取色（1/3/5/7）
-    [1, 3, 5, 7].forEach(function (density, idx) {
-      const pin = heatPinSvg(density);
-      styles['d' + (idx + 1)] = new T.MarkerStyle({
+    const pin = heatPinSvg();
+    return {
+      dot: new T.MarkerStyle({
         width: pin.size, height: pin.size,
         anchor: { x: pin.size / 2, y: pin.size / 2 },
         src: pin.src
-      });
-    });
-    return styles;
+      })
+    };
   }
 
   function svgHeatUpdater(container, onMarkerClick) {
@@ -644,24 +629,24 @@ function renderSvgHeat(overlay, items, onMarkerClick) {
         });
         handle.update = function () { return 0; };
       } else {
-        // 热力层：max 用小值并按当前峰值动态调整，避免权重被固定上限压到透明区；
-        // 渐变起点给一点可见度，稀疏数据也能看到淡淡的热力斑。
+        // 底色热力层：半径放大、透明度压低，让相邻热区连成整体色带而不是一个个圆斑；
+        // max 按当前峰值动态调整，避免权重被固定上限压到透明区。
         const heat = new T.visualization.Heat({
           map: map,
-          radius: 34,
+          radius: 48,
           max: 6,
           min: 0,
-          // 冷到暖的 5 档色带：稀疏青蓝 -> 一般黄 -> 集中橙 -> 高发玫红，
-          // 与离散计数徽章的密度色阶语义一致，热区层次更丰富。
+          // 冷到暖的整体底色：稀疏青绿 -> 一般黄 -> 集中橙 -> 高发玫红。
           gradientColor: {
-            0.1: 'rgba(14,159,142,0.20)', 0.3: '#0E9F8E',
-            0.55: '#EAB308', 0.8: '#EA580C', 1: '#E11D48'
+            0.08: 'rgba(14,159,142,0.06)', 0.28: 'rgba(14,159,142,0.26)',
+            0.52: 'rgba(234,179,8,0.34)', 0.76: 'rgba(234,88,12,0.42)',
+            1: 'rgba(225,29,72,0.52)'
           }
         });
         handle.heat = heat;
 
-        // 可点击散点标记：每条启事一个点，携带真实启事 id，样式按邻域密度档取色。
-        // 点击标点触发 onMarkerClick(id)，由页面打开对应启事详情。
+        // 可点击定位小点：每条启事一个统一小圆点，携带真实启事 id；
+        // 密度色只出现在底色热力层，点本身不带外晕。点击触发 onMarkerClick(id) 打开详情。
         let pinLayer = null;
         if (typeof T.MultiMarker === 'function' && typeof T.MarkerStyle === 'function') {
           pinLayer = new T.MultiMarker({
@@ -698,13 +683,13 @@ function renderSvgHeat(overlay, items, onMarkerClick) {
             try { heat.setMax(Math.max(3, peak)); } catch (e) { /* 老版本 SDK 无 setMax，忽略 */ }
           }
 
-          // 散点标记：每条启事一个点，id 为真实启事 id，样式按密度档（d1-d4）
+          // 定位小点：每条启事一个点，id 为真实启事 id，统一 dot 样式（不按密度着色）
           if (pinLayer && typeof pinLayer.updateGeometries === 'function') {
             try {
               pinLayer.updateGeometries(toMarkerData(pts).map(function (p) {
                 return {
                   id: String(p.id),
-                  styleId: densityStyleKey(p.count),
+                  styleId: 'dot',
                   position: new T.LatLng(p.lat, p.lng)
                 };
               }));

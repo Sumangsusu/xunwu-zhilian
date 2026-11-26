@@ -214,7 +214,7 @@ const noFetch = async function () { return { ok: false, status: 404, json: async
         check('配置接口 404 时降级为 SVG', h.mode === 'svg' && h.reason === 'config-http-404', h.reason);
         check('降级后容器立刻有 SVG（不白屏）', container.innerHTML.indexOf('<svg') >= 0);
         const n = h.update(M.normalizeHeatItems([{ id: 1, mapX: 420, mapY: 100, type: 'lost' }]));
-        check('降级热力图可渲染聚合圆', n === 1 && container._overlay.innerHTML.indexOf('<circle') >= 0);
+        check('降级热力图可渲染底色与小点', n === 1 && container._overlay.innerHTML.indexOf('heat-wash-layer') >= 0 && container._overlay.innerHTML.indexOf('heat-dot') >= 0);
     }
 
     // B2: 网络异常 -> 降级
@@ -270,9 +270,9 @@ const noFetch = async function () { return { ok: false, status: 404, json: async
             JSON.stringify(fake.calls.heatData));
         check('热力层 setData 格式为 {lat,lng,count}', Object.keys(fake.calls.heatData[0]).sort().join(',') === 'count,lat,lng');
         check('热力上限按峰值动态调整', fake.calls.heatMax === 3, String(fake.calls.heatMax));
-        check('真实地图推送可点击散点标记（每条启事一个）',
+        check('真实地图推送可点击定位小点（每条启事一个，统一 dot 样式）',
             Array.isArray(fake.calls.geometries) && fake.calls.geometries.length === 2 &&
-            /^d[1-4]$/.test(fake.calls.geometries[0].styleId), JSON.stringify(fake.calls.geometries));
+            fake.calls.geometries[0].styleId === 'dot', JSON.stringify(fake.calls.geometries));
         check('散点标记携带真实启事 id（非 heat-序号）',
             fake.calls.geometries.map(g => g.id).sort().join(',') === '1,2', JSON.stringify(fake.calls.geometries));
         check('散点标记位置为单条真实坐标',
@@ -362,7 +362,9 @@ const noFetch = async function () { return { ok: false, status: 404, json: async
     check('热力层用分散标点数据（setData 前先 aggregate 保留每条点与密度）', /aggregateHeatPoints\(withApproxGeo\(normalizeHeatItems/.test(mapSrc));
     check('混合数据下老示意图坐标折算为近似经纬度（不再只显示 1 个点）',
         /function withApproxGeo/.test(mapSrc) && /aggregateHeatPoints\(withApproxGeo\(normalizeHeatItems/.test(mapSrc));
-    check('真实地图有可点击散点标记（不只靠透明热力斑）', /buildHeatMarkerStyles/.test(mapSrc) && /pinLayer\.updateGeometries/.test(mapSrc));
+    check('真实地图有可点击定位小点（不只靠透明热力斑）', /buildHeatMarkerStyles/.test(mapSrc) && /pinLayer\.updateGeometries/.test(mapSrc));
+    check('定位小点不带外晕/密度色（只表示位置）', /function heatPinSvg/.test(mapSrc) && /fill="#20304F"/.test(mapSrc) && !/halo/.test(mapSrc));
+    check('集中度由底色热力层表达（GL + SVG 双层）', /new T\.visualization\.Heat/.test(mapSrc) && /heat-wash-layer/.test(mapSrc) && /feGaussianBlur/.test(mapSrc));
     check('散点标记携带真实启事 id（toMarkerData）', /function toMarkerData/.test(mapSrc) && /toMarkerData\(pts\)/.test(mapSrc));
     check('散点绑定 click 事件回传启事 id', /pinLayer\.on\('click'/.test(mapSrc) && /onMarkerClick\(id\)/.test(mapSrc));
     check('热力图页面把 onMarkerClick 接到 showItemDetail', /onMarkerClick:\s*function\s*\(id\)[\s\S]{0,60}showItemDetail/.test(hmSrc));

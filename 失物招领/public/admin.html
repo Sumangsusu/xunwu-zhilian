@@ -182,7 +182,7 @@
                     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                         <div>
                             <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
-                                <span class="text-xs text-slate-500">失物热力分布（武汉大学 · 真实地图 · 徽章数字为该区域启事数）</span>
+                                <span class="text-xs text-slate-500">失物热力分布（武汉大学 · 真实地图 · 小点定位、底色表示集中度）</span>
                                 <span class="inline-flex items-center gap-2 text-xs text-slate-500 heat-legend">
                                     <span class="heat-legend-bar"></span>
                                     <span>稀疏</span><span>一般</span><span>集中</span><span>高发</span>
@@ -673,7 +673,7 @@
             } else {
                 notice.classList.remove('hidden');
                 text.textContent = ADMIN_HEAT_FALLBACK_TEXT[handle.reason] ||
-                    '当前使用校内示意图热力图；每个标点代表一条启事，点击标点可查看详情。';
+                    '当前使用校内示意图热力图；小点表示启事位置，底色越暖越集中，点击小点可查看详情。';
             }
         }
         if (typeof handle.update === 'function') handle.update(adminHeatItems());
@@ -739,34 +739,37 @@
         const pts = window.CampusMapGL && window.CampusMapGL.aggregateHeatPoints
             ? window.CampusMapGL.aggregateHeatPoints(geo)
             : geo.map(i => ({ lng: i.lng, lat: i.lat, count: 1 }));
-        // 与页面一致的分散标点：每条启事一个小圆点，颜色由邻域密度决定（青绿稀疏→玫红高发）。
+        // 与页面一致：底色渐变反映集中度，小圆点只负责定位（不带外晕、不按密度着色）。
         const HEAT_STOPS = (window.CampusMapGL && window.CampusMapGL.HEAT_STOPS) || [
-            { main: '#0E9F8E', light: '#5EEAD4', dark: '#0B6E63' },
-            { main: '#EAB308', light: '#FDE047', dark: '#A16207' },
-            { main: '#EA580C', light: '#FDBA74', dark: '#9A3412' },
-            { main: '#E11D48', light: '#FDA4AF', dark: '#9F1239' }
+            { main: '#0E9F8E' }, { main: '#EAB308' }, { main: '#EA580C' }, { main: '#E11D48' }
         ];
         const heatStop = (window.CampusMapGL && window.CampusMapGL.heatStop) || function (n) {
             return HEAT_STOPS[n >= 7 ? 3 : (n >= 5 ? 2 : (n >= 3 ? 1 : 0))];
         };
+        const rgba = (hex, a) => {
+            const h = String(hex).replace('#', '');
+            return 'rgba(' + parseInt(h.slice(0, 2), 16) + ',' + parseInt(h.slice(2, 4), 16) + ',' + parseInt(h.slice(4, 6), 16) + ',' + a + ')';
+        };
+        // 先铺整体底色：相邻径向渐变互相叠加、边缘完全透明，连成色带而不是可见圆圈。
         pts.forEach(p => {
             const x = px(p.lng), y = py(p.lat);
             const stop = heatStop(p.count);
-            const halo = 14 + Math.min(p.count, 8) * 2.6;
-            const core = 7;
-            // 外晕（颜色越暖表示该点周边越集中）
-            const g = ctx.createRadialGradient(x, y, 0, x, y, halo);
-            g.addColorStop(0, stop.glow || stop.main); g.addColorStop(1, 'rgba(0,0,0,0)');
-            ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, halo, 0, Math.PI * 2); ctx.fill();
-            // 渐变实心小圆点
-            const cg = ctx.createRadialGradient(x - core * 0.3, y - core * 0.3, 1, x, y, core);
-            cg.addColorStop(0, stop.light); cg.addColorStop(0.6, stop.main); cg.addColorStop(1, stop.dark);
-            ctx.fillStyle = cg; ctx.beginPath(); ctx.arc(x, y, core, 0, Math.PI * 2); ctx.fill();
-            ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.stroke();
+            const radius = 48 + Math.min(p.count, 10) * 10;
+            const alpha = Math.min(0.30, 0.08 + p.count * 0.025);
+            const g = ctx.createRadialGradient(x, y, 0, x, y, radius);
+            g.addColorStop(0, rgba(stop.main, alpha));
+            g.addColorStop(1, rgba(stop.main, 0));
+            ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, radius, 0, Math.PI * 2); ctx.fill();
+        });
+        // 再画统一定位小点：深墨色 + 白描边，颜色不承载密度信息。
+        pts.forEach(p => {
+            const x = px(p.lng), y = py(p.lat);
+            ctx.fillStyle = '#20304F'; ctx.beginPath(); ctx.arc(x, y, 3.2, 0, Math.PI * 2); ctx.fill();
+            ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.2; ctx.stroke();
         });
         ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
         ctx.fillStyle = 'rgba(32,48,79,.85)'; ctx.font = 'bold 14px sans-serif';
-        ctx.fillText('武汉大学 · 失物分布散点（颜色越暖越集中 · 不含底图）', 16, 30);
+        ctx.fillText('武汉大学 · 失物分布散点（底色越暖越集中 · 不含底图）', 16, 30);
         ctx.fillStyle = '#20304F'; ctx.font = '12px sans-serif';
         ctx.fillText('共 ' + geo.length + ' 条带坐标启事 · 导出 ' + new Date().toLocaleString('zh-CN'), 16, H - 16);
     }
