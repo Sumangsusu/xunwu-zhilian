@@ -373,7 +373,9 @@ const noFetch = async function () { return { ok: false, status: 404, json: async
         /const core = 2\.6/.test(mapSrc) && /r="2\.6" fill="#20304F"/.test(mapSrc));
     check('集中度由气象式底色色带表达（GL + SVG 双层）', /new T\.visualization\.Heat/.test(mapSrc) && /heat-wash-layer/.test(mapSrc) && /feGaussianBlur/.test(mapSrc));
     check('底色带半透明可辨识、大模糊，透出底图（不再盖住地图）',
-        /gradientColor: \{[\s\S]{0,300}0\.46/.test(mapSrc) && /stdDeviation="34"/.test(mapSrc) && /Math\.min\(0\.34, 0\.10/.test(mapSrc));
+        /gradientColor: \{[\s\S]{0,300}0\.30/.test(mapSrc) && /stdDeviation="34"/.test(mapSrc) && /Math\.min\(0\.34, 0\.10/.test(mapSrc));
+    check('密度 gamma 压缩（幂>1 压低低密度，避免整片全粉看不出疏密）',
+        /Math\.pow\(ratio, 1\.6\)/.test(mapSrc));
     check('用网格 KDE 平滑密度场替代散点点阵（高斯核 + 规则网格）',
         /function buildGridHeatField/.test(mapSrc) && /Math\.exp\(-\(dx \* dx \+ dy \* dy\) \/ twoSigma2\)/.test(mapSrc) &&
         /const field = buildGridHeatField\(pts\)/.test(mapSrc) && /heat\.setData\(field\)/.test(mapSrc));

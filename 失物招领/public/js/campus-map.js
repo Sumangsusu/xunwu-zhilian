@@ -137,11 +137,13 @@ function buildGridHeatField(points, opts) {
       if (v > peak) peak = v;
     }
   }
-  // 归一化到 [0,1]，再做 gamma 压缩：让中低密度也有可见色，同时峰值才到最暖档。
+  // 归一化到 [0,1] 后做 gamma 压缩（幂次 >1）：压低中低密度，只让真正的热点进入暖色档。
+  // 关键：幂次 <1（此前 0.72）会「抬高」低密度，ratio=0.3 被抬到 0.42，导致整片偏暖、
+  // 全是玫红却看不出疏密。改成 1.6 后 0.3→0.14、0.6→0.43、0.9→0.85，色阶真正拉开。
   // count 用连续浮点（非整数档），热力层据此平滑插值出气象图式色带。
   return raw.map(function (cell) {
     const ratio = peak > 0 ? cell.v / peak : 0;
-    const shaped = Math.pow(ratio, 0.72);
+    const shaped = Math.pow(ratio, 1.6);
     return {
       lat: cell.lat,
       lng: cell.lng,
@@ -713,12 +715,12 @@ function renderSvgHeat(overlay, items, onMarkerClick) {
           radius: 72,
           max: 6,
           min: 0,
-          // 渐变起点完全透明，随后快速进入可见区；稀疏青绿 -> 一般黄 -> 集中橙 -> 高发玫红。
-          // 峰值 alpha 0.46：足以一眼看出色带，又不至于盖住底图。
+          // 渐变起点完全透明，低密度段刻意压到很淡：只有真正的热点才进入黄/橙/玫红。
+          // 稀疏青绿 -> 一般黄 -> 集中橙 -> 高发玫红；峰值 alpha 0.30 让底图始终清晰。
           gradientColor: {
-            0: 'rgba(14,159,142,0)', 0.18: 'rgba(14,159,142,0.16)',
-            0.4: 'rgba(234,179,8,0.26)', 0.68: 'rgba(234,88,12,0.36)',
-            1: 'rgba(225,29,72,0.46)'
+            0: 'rgba(14,159,142,0)', 0.28: 'rgba(14,159,142,0.05)',
+            0.55: 'rgba(234,179,8,0.12)', 0.8: 'rgba(234,88,12,0.21)',
+            1: 'rgba(225,29,72,0.30)'
           }
         });
         handle.heat = heat;

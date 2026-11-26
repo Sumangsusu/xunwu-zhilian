@@ -14,7 +14,8 @@ grep -q 'stdDeviation="34"' "$SRC/public/js/campus-map.js" || { echo "FATAL: 源
 grep -q "const core = 2.6" "$SRC/public/js/campus-map.js" || { echo "FATAL: 源码非小点状版"; exit 3; }
 grep -q "function buildGridHeatField" "$SRC/public/js/campus-map.js" || { echo "FATAL: 源码非网格KDE平滑色场版"; exit 3; }
 grep -q "const field = buildGridHeatField(pts)" "$SRC/public/js/campus-map.js" || { echo "FATAL: 热力层未用网格密度场"; exit 3; }
-grep -q "0.4: 'rgba(234,179,8,0.26)'" "$SRC/public/js/campus-map.js" || { echo "FATAL: 源码非气象色带调色版"; exit 3; }
+grep -q "Math.pow(ratio, 1.6)" "$SRC/public/js/campus-map.js" || { echo "FATAL: 源码非gamma压缩版（仍会全粉）"; exit 3; }
+grep -q "1: 'rgba(225,29,72,0.30)'" "$SRC/public/js/campus-map.js" || { echo "FATAL: 源码非低alpha色带版"; exit 3; }
 grep -q "onMarkerClick" "$SRC/public/heatmap.html" || { echo "FATAL: heatmap.html 非散点版"; exit 3; }
 grep -q "onMarkerClick" "$SRC/public/admin.html" || { echo "FATAL: admin.html 非散点版"; exit 3; }
 CID=$(docker ps -q -f name=xunwu-zhilian-app | head -1)
@@ -22,7 +23,7 @@ CID=$(docker ps -q -f name=xunwu-zhilian-app | head -1)
 echo "CID=$CID"
 test -n "$CID"
 for f in js/campus-map.js heatmap.html admin.html; do
-  cp -f "$DST/public/$f" "$DST/public/$f.bak-gridkde" 2>/dev/null || true
+  cp -f "$DST/public/$f" "$DST/public/$f.bak-gamma" 2>/dev/null || true
   cp -f "$SRC/public/$f" "$DST/public/$f"
   docker cp "$DST/public/$f" "$CID:/app/public/$f"
   echo "deployed $f"
@@ -37,5 +38,6 @@ curl -sS --max-time 10 http://127.0.0.1/js/campus-map.js | grep -o "heat-wash-la
 curl -sS --max-time 10 http://127.0.0.1/js/campus-map.js | grep -o 'stdDeviation="34"' | head -1
 curl -sS --max-time 10 http://127.0.0.1/js/campus-map.js | grep -o "const core = 2.6" | head -1
 curl -sS --max-time 10 http://127.0.0.1/js/campus-map.js | grep -o "function buildGridHeatField" | head -1
+curl -sS --max-time 10 http://127.0.0.1/js/campus-map.js | grep -o "Math.pow(ratio, 1.6)" | head -1
 curl -sS --max-time 10 http://127.0.0.1/heatmap.html | grep -o "onMarkerClick" | head -1
 echo "=== DEPLOY_DONE ==="
