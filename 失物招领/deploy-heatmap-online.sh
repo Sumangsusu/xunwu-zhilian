@@ -8,15 +8,15 @@ echo "SRC=$SRC"
 echo "DST=$DST"
 test -f "$SRC/public/js/campus-map.js"
 test -f "$DST/server.js"
-grep -q "HEAT_STOPS" "$SRC/public/js/campus-map.js"
-grep -q "heat-legend-bar" "$SRC/public/css/style.css"
-grep -q "legend-bar" "$SRC/public/heatmap.html"
+grep -q "toMarkerData" "$SRC/public/js/campus-map.js" || { echo "FATAL: 源码非散点版"; exit 3; }
+grep -q "onMarkerClick" "$SRC/public/heatmap.html" || { echo "FATAL: heatmap.html 非散点版"; exit 3; }
+grep -q "onMarkerClick" "$SRC/public/admin.html" || { echo "FATAL: admin.html 非散点版"; exit 3; }
 CID=$(docker ps -q -f name=xunwu-zhilian-app | head -1)
 [ -z "$CID" ] && CID=$(docker ps --format '{{.ID}} {{.Names}}' | grep -iE 'xunwu|xunw' | head -1 | awk '{print $1}')
 echo "CID=$CID"
 test -n "$CID"
-for f in js/campus-map.js css/style.css heatmap.html admin.html; do
-  cp -f "$DST/public/$f" "$DST/public/$f.bak-heat" 2>/dev/null || true
+for f in js/campus-map.js heatmap.html admin.html; do
+  cp -f "$DST/public/$f" "$DST/public/$f.bak-scatter" 2>/dev/null || true
   cp -f "$SRC/public/$f" "$DST/public/$f"
   docker cp "$DST/public/$f" "$CID:/app/public/$f"
   echo "deployed $f"
@@ -27,6 +27,6 @@ echo "=== HEALTH ==="
 curl -sS --max-time 10 http://127.0.0.1/health
 echo ""
 echo "=== ONLINE CHECK ==="
-curl -sS --max-time 10 http://127.0.0.1/js/campus-map.js | grep -o "HEAT_STOPS" | head -1
-curl -sS --max-time 10 http://127.0.0.1/css/style.css | grep -o "heat-legend-bar" | head -1
+curl -sS --max-time 10 http://127.0.0.1/js/campus-map.js | grep -o "toMarkerData" | head -1
+curl -sS --max-time 10 http://127.0.0.1/heatmap.html | grep -o "onMarkerClick" | head -1
 echo "=== DEPLOY_DONE ==="
