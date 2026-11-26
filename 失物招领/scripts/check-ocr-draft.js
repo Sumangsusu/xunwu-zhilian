@@ -57,7 +57,7 @@ const draft = M.composeFormDraft('白色智能手表', {
 }, current);
 check('识别结果填入名称/分类/主色', !!draft.values.title && draft.values.category === '电子数码' && draft.values.color === '白色', JSON.stringify(draft.values));
 check('填入字段被如实记录用于提示', ['title', 'category', 'color', 'features', 'description'].every((k) => draft.filled.indexOf(k) >= 0), JSON.stringify(draft.filled));
-check('描述使用 OCR 原文', draft.values.description === '白色智能手表', draft.values.description);
+check('描述由识别结果生成通顺草稿', /手表/.test(draft.values.description) && /请核对并补充细节/.test(draft.values.description) && draft.values.description.indexOf('00\'GT') < 0, draft.values.description);
 check('用户已填名称不被覆盖', M.composeFormDraft('蓝色耳机', norm, {
     title: '我的耳机', category: '', color: '', features: '', description: ''
 }).values.title === '我的耳机');
@@ -94,7 +94,7 @@ const rescued = M.composeFormDraft("00'GT", {
     type: '手表', category: '电子数码', color: '银色', rejected: false, candidates: []
 }, { title: '', category: '', color: '', features: '', description: '' });
 check('乱码场景由物品识别补名称', rescued.values.title === '手表' && rescued.values.category === '电子数码', JSON.stringify(rescued.values));
-check('乱码不污染描述', rescued.values.description === '', JSON.stringify(rescued.values.description));
+check('乱码不污染描述（用可靠识别结果生成，不含乱码）', rescued.values.description.indexOf("00'GT") < 0 && /手表/.test(rescued.values.description), JSON.stringify(rescued.values.description));
 const bothFail = M.composeFormDraft("00'GT", { type: '未能确定', rejected: true, color: '未知' }, {
     title: '', category: '', color: '', features: '', description: ''
 });
@@ -118,6 +118,40 @@ CATEGORIES.forEach(function (c) {
 check('存在 toJpegDataUrl 转码函数', typeof M.toJpegDataUrl === 'function');
 check('识别请求前先经过 toJpegDataUrl', /toJpegDataUrl\(dataUrl\)[\s\S]{0,120}RECOGNIZE_ENDPOINT/.test(js));
 check('转码目标为 image/jpeg', js.indexOf("canvas.toDataURL('image/jpeg', 0.9)") >= 0);
+
+// 12. 核心回归：物品照片 OCR 把包装/铭牌/水印识别成杂乱文字，不得整段进详细描述
+//     模拟一张耳机包装盒照片的真实 OCR 返回（型号/参数/认证/厂名 + 一句真实描述）
+const messyOCR = [
+    '型号：A1234', '执行标准 GB/T 14436', '生产日期 2024.05.12', '净含量 120g',
+    '黑色蓝牙耳机', '序列号 882731094', 'Made in China', '认证：CE FCC',
+    '东莞市某某电子厂', 'www.example.com', '￥#@ 00\'GT'
+].join('\n');
+check('参数行判定为不可作描述',
+    ['型号：A1234', '执行标准 GB/T 14436', '生产日期 2024.05.12', 'Made in China', '认证：CE FCC', '序列号 882731094']
+        .every((line) => M.isDescriptiveLine(line) === false));
+check('真实物品描述行被保留', M.isDescriptiveLine('黑色蓝牙耳机') === true);
+const cleaned = M.descriptiveLines(messyOCR);
+check('严格过滤只留物品描述短句', cleaned === '黑色蓝牙耳机', cleaned);
+const messyDraft = M.composeFormDraft(messyOCR, null, {
+    title: '', category: '', color: '', features: '', description: ''
+});
+check('凌乱 OCR 只留干净短句、不带参数水印',
+    /黑色蓝牙耳机/.test(messyDraft.values.description) &&
+    ['型号', '执行标准', 'GB', '生产日期', '序列号', 'Made in', '认证', '电子厂', 'www', '00\'GT']
+        .every((noise) => messyDraft.values.description.indexOf(noise) < 0),
+    JSON.stringify(messyDraft.values.description));
+const messyWithRecognize = M.composeFormDraft(messyOCR, {
+    type: '耳机', category: '电子数码', color: '黑色', rejected: false, candidates: []
+}, { title: '', category: '', color: '', features: '', description: '' });
+const md = messyWithRecognize.values.description;
+check('有识别结果时描述通顺且无参数乱码',
+    /耳机/.test(md) && md.indexOf('型号') < 0 && md.indexOf('GB') < 0 && md.indexOf('Made in') < 0 &&
+    md.indexOf('00\'GT') < 0 && md.indexOf('电子厂') < 0, md);
+// 用户已填描述时绝不被覆盖
+const keepDesc = M.composeFormDraft(messyOCR, {
+    type: '耳机', category: '电子数码', color: '黑色', rejected: false, candidates: []
+}, { title: '', category: '', color: '', features: '', description: '我自己写的描述' });
+check('凌乱 OCR 不覆盖用户已填描述', keepDesc.values.description === '我自己写的描述', keepDesc.values.description);
 
 console.log('\n结果：' + pass + '/' + total + ' 通过');
 process.exit(pass === total ? 0 : 1);

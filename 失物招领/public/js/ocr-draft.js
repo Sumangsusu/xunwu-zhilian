@@ -27,6 +27,17 @@
         { value: '钥匙', words: ['钥匙', '门禁卡', '车钥匙'] }
     ];
     var FEATURE_HINTS = ['皮质', '金属', '陶瓷', '磨损', '划痕', '全新', '表带', '对折', '拉链', '按键', '屏幕', '挂绳', '反光'];
+    // 物品照片上的 OCR 常把包装/铭牌/吊牌识别成杂乱文字（型号、参数、认证、厂名…）。
+    // 这些行即使含中文也不是"物品描述"，绝不能整段塞进公开的详细描述字段。
+    var DESCRIPTION_NOISE = [
+        '型号', '货号', '编号', '序列号', '批号', '批次', '执行标准', '生产日期', '保质期',
+        '净含量', '规格', '产地', '厂名', '厂址', '制造商', '生产商', '输入', '输出', '电压',
+        '电流', '功率', '容量', '成分', '材质', '认证', '条码', '网址', '电话', '热线',
+        '商标', '品牌', '有效期', '储存', '储存条件', '注意事项', '使用说明', '合格证',
+        '品名', '产品名称', '商品名称', '名称', '重量', '尺寸', '等级', '检验', '包装',
+        '公司', '工厂', '电子厂', '商行', '旗舰店', 'made in', 'model', 'serial', 'iso',
+        'gb/t', 'fcc', 'batch', 'expiry', 's/n', 'sn:', 'www.', 'http'
+    ];
     // 物品识别给出的中文 type 优先于 OCR 文本；OCR 文字只有「可信」时才兜底填名称。
     // 这些英文词用于判断一段 OCR 文本是否真的在描述物品，而不是表盘/包装上的乱码。
     var EN_ITEM_WORDS = ['phone', 'iphone', 'ipad', 'ipod', 'watch', 'airpods', 'headphone',
@@ -84,13 +95,73 @@
         return /[a-z]{3,}/i.test(s);
     }
 
-    /** 只保留可信的 OCR 行，供描述字段使用；整段乱码时返回空串。 */
+    /** 只保留可信的 OCR 行，供结构化字段（名称/分类/颜色/特征）提取使用；整段乱码时返回空串。 */
     function credibleLines(text) {
         var raw = sanitize(text);
         if (!raw) return '';
         return raw.split(/\r?\n/).map(clean).filter(function (line) {
             return line && isCredibleText(line);
         }).join('\n');
+    }
+
+    /**
+     * 严格判断一行 OCR 文字是否"像一句物品描述"，用于详细描述字段兜底。
+     * 比 isCredibleText 严得多：包装参数、铭牌编号、厂名认证、过长过短的行一律拒绝。
+     */
+    function isDescriptiveLine(text) {
+        var s = clean(text);
+        if (!s || s.indexOf('已隐藏') >= 0) return false;
+        // 过长行极可能是整段说明文字/广告语，过短行是噪声单字
+        if (s.length < 2 || s.length > 30) return false;
+        // 含冒号的多为"字段：值"参数行（型号：xxx / 材质：xxx）
+        if (/[:：]/.test(s)) return false;
+        // 3 位以上连续数字多为型号、批号、规格值
+        if (/\d{3,}/.test(s)) return false;
+        var lower = s.toLowerCase();
+        if (DESCRIPTION_NOISE.some(function (w) { return lower.indexOf(w) >= 0; })) return false;
+        // 以中文为主（至少 2 个汉字且占比过半），避免纯英文编号/乱码
+        var cn = (s.match(/[\u4e00-\u9fff]/g) || []).length;
+        return cn >= 2 && cn * 2 >= s.length;
+    }
+
+    /** 严格过滤后的描述行：去重后最多取 2 行，用顿号连成一句，供描述兜底。 */
+    function descriptiveLines(text) {
+        var raw = sanitize(text);
+        if (!raw) return '';
+        var seen = Object.create(null), out = [];
+        raw.split(/\r?\n/).map(clean).forEach(function (line) {
+            if (line && isDescriptiveLine(line) && !seen[line]) {
+                seen[line] = 1;
+                out.push(line);
+            }
+        });
+        return out.slice(0, 2).join('，');
+    }
+
+    /**
+     * 由已填好的结构化字段生成一句通顺的描述草稿。
+     * 优先用物品识别给出的中文物品名；主色/特征只在名称里没出现时才补，避免重复。
+     * 任何看起来像包装参数的名称都不进入描述。
+     */
+    function buildDescriptionDraft(values, ocrFallback) {
+        var v = values || {};
+        var title = clean(v.title);
+        if (title && !isDescriptiveLine(title)) title = '';
+        var color = clean(v.color);
+        var features = clean(v.features);
+        var fallback = clean(ocrFallback);
+        var base = title || fallback;
+        if (!base) return '';
+        var detail = [];
+        if (color && base.indexOf(color) < 0) detail.push(color);
+        if (features) {
+            var parts = features.split(/[、,，]/).map(clean).filter(function (f) {
+                return f && base.indexOf(f) < 0 && detail.indexOf(f) < 0;
+            });
+            if (parts.length) detail.push(parts.join('、'));
+        }
+        var text = base + (detail.length ? '，' + detail.join('，') : '');
+        return text + '。（由智能识别预填，请核对并补充细节）';
     }
 
     /**
@@ -161,24 +232,24 @@
 
     /**
      * 文字识别 + 物品识别 -> 发布页草稿。
-     * 先按文字提取，再用物品识别补齐仍为空的字段；描述始终以 OCR 原文为准。
+     * 先按文字提取，再用物品识别补齐仍为空的字段；描述由可靠结果生成通顺草稿，
+     * 不整段塞入 OCR 原文（包装/参数/水印会造成"凌乱文字"）。
      * 返回 { values, filled }，filled 为实际新填入的字段名数组。
      */
     function composeFormDraft(text, recognition, current) {
         var originalDesc = clean(current && current.description);
-        var textDraft = composeDraft(originalDesc, text);
         var before = {
             title: clean(current && current.title),
             category: clean(current && current.category),
             color: clean(current && current.color),
             features: clean(current && current.features),
-            description: textDraft.text
+            description: originalDesc
         };
         // 物品识别给出的中文物品名比 OCR 文字更可靠，先用它填结构化字段；
         // OCR 文字仅在识别没填上的字段里兜底，避免乱码或误识别的英文占据名称。
         var values = {
             title: before.title, category: before.category, color: before.color,
-            features: before.features, description: before.description
+            features: before.features, description: originalDesc
         };
         var normalized = normalizeRecognition(recognition);
         if (normalized && root.RecognizeDraft && typeof root.RecognizeDraft.build === 'function') {
@@ -189,15 +260,17 @@
         ['title', 'category', 'color', 'features'].forEach(function (k) {
             if (!clean(values[k]) && clean(fromText[k])) values[k] = fromText[k];
         });
-        // 描述以可信 OCR 文字为准，物品识别只补结构化字段
-        values.description = textDraft.text;
+        // 详细描述：用户已填内容一律保留；否则由可靠识别结果生成通顺草稿，
+        // OCR 只有严格过滤后的短句才作兜底，识别失败则留空待手填。
+        if (!originalDesc) {
+            var generated = buildDescriptionDraft(values, descriptiveLines(text));
+            if (generated) values.description = generated;
+        }
 
         var filled = [];
         Object.keys(FIELD_LABELS).forEach(function (k) {
             if (clean(values[k]) && clean(values[k]) !== before[k]) filled.push(k);
         });
-        // 描述可能原本就有内容，此时是在末尾追加，同样算「已填入」
-        if (textDraft.changed && filled.indexOf('description') < 0) filled.push('description');
         return { values: values, filled: filled };
     }
 
@@ -391,6 +464,9 @@
         composeDraft: composeDraft,
         isCredibleText: isCredibleText,
         credibleLines: credibleLines,
+        isDescriptiveLine: isDescriptiveLine,
+        descriptiveLines: descriptiveLines,
+        buildDescriptionDraft: buildDescriptionDraft,
         toJpegDataUrl: toJpegDataUrl,
         parseFieldsFromText: parseFieldsFromText,
         normalizeRecognition: normalizeRecognition,
