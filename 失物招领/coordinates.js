@@ -97,7 +97,23 @@ function coordinates({ mapX, mapY, lng, lat, location }) {
   if (!geo && svg) {
     const zone = closest(zones, (p) => (svg.mapX - p.mapX) ** 2 + (svg.mapY - p.mapY) ** 2);
     const point = calibration.find((p) => p.name === zone.name);
-    if (point) geo = { lng: point.lng, lat: point.lat };
+    if (point) {
+      // 以功能区实测锚点为基准，按 mapX/mapY 相对该功能区中心的偏移做「局部插值」：
+      // 同一地点（如「图书馆三楼」）的多条启事在示意图上有各自独立的精细位置，
+      // 若统一折叠到功能区中心，50 条启事会塌缩成十几个重复坐标、地图标记完全重叠。
+      // 偏移比例沿用 approxGeo 的 2 米 / SVG 单位，只在同一功能区内部微调，
+      // 不越过功能区边界、不伪造实测精度；有真实 lng/lat 的启事不会进入此分支。
+      const metersPerUnit = 2;
+      const lngPerMeter = 1 / (111320 * Math.cos(point.lat * Math.PI / 180));
+      const latPerMeter = 1 / 110540;
+      const offX = Number(svg.mapX) - Number(zone.mapX);
+      const offY = Number(svg.mapY) - Number(zone.mapY);
+      const lng = Number(point.lng) + offX * metersPerUnit * lngPerMeter;
+      const lat = Number(point.lat) - offY * metersPerUnit * latPerMeter;
+      geo = validPair(lng, lat, -180, 180, -90, 90)
+        ? { lng: Math.round(lng * 1e6) / 1e6, lat: Math.round(lat * 1e6) / 1e6 }
+        : { lng: point.lng, lat: point.lat }; // 插值异常时安全回退到功能区锚点
+    }
   }
   return { mapX: null, mapY: null, lng: null, lat: null, ...svg, ...geo };
 }

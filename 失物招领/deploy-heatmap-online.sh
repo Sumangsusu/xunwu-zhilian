@@ -18,6 +18,9 @@ grep -q "Math.pow(ratio, 1.6)" "$SRC/public/js/campus-map.js" || { echo "FATAL: 
 grep -q "1: 'rgba(225,29,72,0.30)'" "$SRC/public/js/campus-map.js" || { echo "FATAL: 源码非低alpha色带版"; exit 3; }
 grep -q "onMarkerClick" "$SRC/public/heatmap.html" || { echo "FATAL: heatmap.html 非散点版"; exit 3; }
 grep -q "onMarkerClick" "$SRC/public/admin.html" || { echo "FATAL: admin.html 非散点版"; exit 3; }
+# 后端坐标局部插值：确保同地点多条启事不再折叠到同一坐标（50 条 -> 14 坐标的修复）
+grep -q "const offX = Number(svg.mapX) - Number(zone.mapX)" "$SRC/coordinates.js" || { echo "FATAL: coordinates.js 非局部插值版（仍会坐标重叠）"; exit 3; }
+grep -q "Math.round(lng \* 1e6) / 1e6" "$SRC/coordinates.js" || { echo "FATAL: coordinates.js 无插值坐标量化"; exit 3; }
 CID=$(docker ps -q -f name=xunwu-zhilian-app | head -1)
 [ -z "$CID" ] && CID=$(docker ps --format '{{.ID}} {{.Names}}' | grep -iE 'xunwu|xunw' | head -1 | awk '{print $1}')
 echo "CID=$CID"
@@ -28,6 +31,12 @@ for f in js/campus-map.js heatmap.html admin.html; do
   docker cp "$DST/public/$f" "$CID:/app/public/$f"
   echo "deployed $f"
 done
+# 后端坐标映射：与 server.js 同级的 coordinates.js（不在 public 下）
+test -f "$SRC/coordinates.js" && test -f "$DST/coordinates.js"
+cp -f "$DST/coordinates.js" "$DST/coordinates.js.bak-disperse" 2>/dev/null || true
+cp -f "$SRC/coordinates.js" "$DST/coordinates.js"
+docker cp "$DST/coordinates.js" "$CID:/app/coordinates.js"
+echo "deployed coordinates.js"
 docker restart "$CID" >/dev/null
 sleep 8
 echo "=== HEALTH ==="
@@ -40,4 +49,7 @@ curl -sS --max-time 10 http://127.0.0.1/js/campus-map.js | grep -o "const core =
 curl -sS --max-time 10 http://127.0.0.1/js/campus-map.js | grep -o "function buildGridHeatField" | head -1
 curl -sS --max-time 10 http://127.0.0.1/js/campus-map.js | grep -o "Math.pow(ratio, 1.6)" | head -1
 curl -sS --max-time 10 http://127.0.0.1/heatmap.html | grep -o "onMarkerClick" | head -1
+echo "=== COORD DISPERSION (total / unique) ==="
+curl -sS --max-time 15 http://127.0.0.1/api/items/heatmap > /tmp/heat-check.json
+node -e "const d=require('/tmp/heat-check.json');const a=d.items||d.data||d;const u=new Set(a.map(i=>i.lng+','+i.lat));console.log('items='+a.length+' uniqueCoords='+u.size);" 2>/dev/null || echo "node check skipped"
 echo "=== DEPLOY_DONE ==="
