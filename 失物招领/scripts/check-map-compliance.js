@@ -262,14 +262,19 @@ const noFetch = async function () { return { ok: false, status: 404, json: async
             { id: 2, type: 'found', lng: 114.36018, lat: 30.53018, mapX: 421, mapY: 101, title: 'b', location: '图书馆', date: 'd' }
         ]);
         const cnt = h.update(items);
-        check('热力层 setData 收到分散标点数据（每条一点）',
-            cnt === 2 && Array.isArray(fake.calls.heatData) && fake.calls.heatData.length === 2,
-            JSON.stringify(fake.calls.heatData));
-        check('热力数据带密度权重 count（渐变色依据）',
-            fake.calls.heatData.every(p => p.count >= 1) && fake.calls.heatData.some(p => p.count === 2),
-            JSON.stringify(fake.calls.heatData));
+        check('更新返回启事条数（每条启事一个可点击散点）', cnt === 2, String(cnt));
+        check('热力层 setData 收到网格 KDE 密度场（非散点点阵，格点数=COLS*ROWS）',
+            Array.isArray(fake.calls.heatData) && fake.calls.heatData.length === M.HEAT_GRID_COLS * M.HEAT_GRID_ROWS,
+            'len=' + (fake.calls.heatData || []).length);
+        check('密度场 count 连续变化（平滑过渡，非整数档）',
+            fake.calls.heatData.every(p => p.count >= 0.5 && p.count <= M.HEAT_MAX_LEVELS) &&
+            new Set(fake.calls.heatData.map(p => Math.round(p.count * 10))).size > 10,
+            'distinct=' + new Set(fake.calls.heatData.map(p => Math.round(p.count * 10))).size);
+        check('密度场峰值高于边缘（中间密集处更暖）',
+            Math.max.apply(null, fake.calls.heatData.map(p => p.count)) -
+            Math.min.apply(null, fake.calls.heatData.map(p => p.count)) > 20);
         check('热力层 setData 格式为 {lat,lng,count}', Object.keys(fake.calls.heatData[0]).sort().join(',') === 'count,lat,lng');
-        check('热力上限按峰值动态调整', fake.calls.heatMax === 3, String(fake.calls.heatMax));
+        check('热力上限固定为密度量化上限（保证色阶稳定）', fake.calls.heatMax === M.HEAT_MAX_LEVELS, String(fake.calls.heatMax));
         check('真实地图推送可点击定位小点（每条启事一个，统一 dot 样式）',
             Array.isArray(fake.calls.geometries) && fake.calls.geometries.length === 2 &&
             fake.calls.geometries[0].styleId === 'dot', JSON.stringify(fake.calls.geometries));
@@ -369,8 +374,12 @@ const noFetch = async function () { return { ok: false, status: 404, json: async
     check('集中度由气象式底色色带表达（GL + SVG 双层）', /new T\.visualization\.Heat/.test(mapSrc) && /heat-wash-layer/.test(mapSrc) && /feGaussianBlur/.test(mapSrc));
     check('底色带半透明可辨识、大模糊，透出底图（不再盖住地图）',
         /gradientColor: \{[\s\S]{0,300}0\.46/.test(mapSrc) && /stdDeviation="34"/.test(mapSrc) && /Math\.min\(0\.34, 0\.10/.test(mapSrc));
-    check('密度采样半径足够大（约 300 米，避免权重全为 1 导致色带不可见）',
-        /const HEAT_GRID_DEG = 0\.003/.test(mapSrc) && /peak \* 0\.6/.test(mapSrc));
+    check('用网格 KDE 平滑密度场替代散点点阵（高斯核 + 规则网格）',
+        /function buildGridHeatField/.test(mapSrc) && /Math\.exp\(-\(dx \* dx \+ dy \* dy\) \/ twoSigma2\)/.test(mapSrc) &&
+        /const field = buildGridHeatField\(pts\)/.test(mapSrc) && /heat\.setData\(field\)/.test(mapSrc));
+    check('密度场带宽至少覆盖 1.5 个格距（保证色带连续、不呈点阵）',
+        /Math\.max\(sigmaRaw, Math\.max\(stepLng, stepLat\) \* 1\.5\)/.test(mapSrc) &&
+        /HEAT_GRID_COLS = 22/.test(mapSrc) && /HEAT_GRID_ROWS = 16/.test(mapSrc));
     check('散点标记携带真实启事 id（toMarkerData）', /function toMarkerData/.test(mapSrc) && /toMarkerData\(pts\)/.test(mapSrc));
     check('散点绑定 click 事件回传启事 id', /pinLayer\.on\('click'/.test(mapSrc) && /onMarkerClick\(id\)/.test(mapSrc));
     check('热力图页面把 onMarkerClick 接到 showItemDetail', /onMarkerClick:\s*function\s*\(id\)[\s\S]{0,60}showItemDetail/.test(hmSrc));

@@ -6,10 +6,12 @@
 //     前端仓库只保留占位符与域名白名单校验，不出现任何可用 key 或写死的外部地址；
 //   - 坐标系 GCJ-02：SDK 事件返回的 latLng 直接入库，不做坐标系转换，
 //     也不把 WGS-84 / BD-09 喂给 SDK（否则点位整体偏移）；
-//   - 热力图采用「小点定位 + 气象式底色色带」：每条启事只画一个极小的点状标记（携带真实
-//     坐标与 id，点击可打开对应启事）；集中程度由一层低透明度、边缘柔和的连续色带表达
-//     （类似降水量 / 气温分布图），底图路网始终清晰可见，不叠加外晕 / 计数圆圈。进入前端
-//     的数据先做字段白名单，联系方式、图片、描述、防冒领问答一律不进入页面全局对象；
+//   - 热力图采用「小点定位 + 气象式平滑色场」：每条启事只画一个极小的点状标记（携带真实
+//     坐标与 id，点击可打开对应启事）；集中程度由一层连续平滑的密度色场表达（类似降水量 /
+//     气温分布图）：把散点铺成规则网格、用高斯 KDE 估算每个格点的连续密度，再由官方热力层
+//     插值成柔和色带，绝不出现一个个孤立色斑（点阵）。底图路网始终清晰可见，不叠加外晕 /
+//     计数圆圈。进入前端的数据先做字段白名单，联系方式、图片、描述、防冒领问答一律不进入
+//     页面全局对象；
 //   - 地图容器使用固定像素高度，避免 flex 布局下高度为 0 导致白屏；
 //   - 不自绘国界、不改官方底图标注；不使用预览环境的运行时代理模板；
 //   - 官方真实 API：TMap.Map / TMap.LatLng / TMap.MultiMarker / TMap.MarkerStyle /
@@ -74,6 +76,78 @@ function heatStop(count) {
   const n = Number(count) || 1;
   const idx = n >= 7 ? 3 : (n >= 5 ? 2 : (n >= 3 ? 1 : 0));
   return HEAT_STOPS[idx];
+}
+
+// ===== 平滑密度场（高斯 KDE 网格化）=====
+// 关键：不能把「每条启事一个散点」直接喂给热力层——散点间距大于核半径时，每个点被画成
+// 一个孤立色斑，连不成片，看起来就是点阵。这里先在所有散点的外接矩形上铺一张规则网格，
+// 用高斯核密度估计（KDE）给每个格点算一个连续强度，再交给官方热力层插值成平滑色带。
+// 网格密度场只用于「底色」；每条启事的精确定位与点击仍由独立的小点 marker 承担。
+const HEAT_GRID_COLS = 22;          // 网格列数（越多越平滑）
+const HEAT_GRID_ROWS = 16;          // 网格行数
+const HEAT_GRID_PAD = 0.35;         // 外接矩形外扩比例，避免色带贴边被裁
+const HEAT_KDE_SIGMA = 0.0016;      // 高斯核带宽（度，约 160 米），决定色带平滑程度
+const HEAT_MAX_LEVELS = 100;        // 密度量化上限，供热力层 max 使用
+
+/**
+ * 把散点转成规则网格上的连续密度场（高斯 KDE）。
+ * 每个格点的强度 = Σ exp(-d² / (2σ²))，d 为该格点到各启事的距离（经纬度近似等距）。
+ * 返回 [{lat, lng, count}]，count 为归一化到 [1, 100] 的连续密度（越高越暖）。
+ * 格点坐标由数据外接矩形推导，不引入任何新的底图坐标或外部服务。
+ */
+function buildGridHeatField(points, opts) {
+  const o = opts || {};
+  const cols = Number(o.cols) > 0 ? Math.round(Number(o.cols)) : HEAT_GRID_COLS;
+  const rows = Number(o.rows) > 0 ? Math.round(Number(o.rows)) : HEAT_GRID_ROWS;
+  const sigmaRaw = Number(o.sigma) > 0 ? Number(o.sigma) : HEAT_KDE_SIGMA;
+  const pts = (Array.isArray(points) ? points : []).filter(function (p) {
+    return p && isFiniteNumber(p.lng) && isFiniteNumber(p.lat) && isChinaGcj02(p.lng, p.lat);
+  });
+  if (!pts.length) return [];
+
+  let minLng = Infinity, maxLng = -Infinity, minLat = Infinity, maxLat = -Infinity;
+  pts.forEach(function (p) {
+    minLng = Math.min(minLng, Number(p.lng)); maxLng = Math.max(maxLng, Number(p.lng));
+    minLat = Math.min(minLat, Number(p.lat)); maxLat = Math.max(maxLat, Number(p.lat));
+  });
+  // 单点 / 极窄范围时给一个最小跨度，网格不至于退化成一条线
+  const spanLng = Math.max(maxLng - minLng, HEAT_KDE_SIGMA * 2);
+  const spanLat = Math.max(maxLat - minLat, HEAT_KDE_SIGMA * 2);
+  const padLng = spanLng * HEAT_GRID_PAD, padLat = spanLat * HEAT_GRID_PAD;
+  const x0 = minLng - padLng, y0 = minLat - padLat;
+  const stepLng = (spanLng + padLng * 2) / (cols - 1);
+  const stepLat = (spanLat + padLat * 2) / (rows - 1);
+  // 带宽至少覆盖 1.5 个格距，保证相邻格点密度连续、色带平滑不呈点阵
+  const sigma = Math.max(sigmaRaw, Math.max(stepLng, stepLat) * 1.5);
+  const twoSigma2 = 2 * sigma * sigma;
+
+  const raw = [];
+  let peak = 0;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const lng = x0 + c * stepLng;
+      const lat = y0 + r * stepLat;
+      let v = 0;
+      for (let i = 0; i < pts.length; i++) {
+        const dx = Number(pts[i].lng) - lng;
+        const dy = Number(pts[i].lat) - lat;
+        v += Math.exp(-(dx * dx + dy * dy) / twoSigma2);
+      }
+      raw.push({ lat: round6(lat), lng: round6(lng), v: v });
+      if (v > peak) peak = v;
+    }
+  }
+  // 归一化到 [0,1]，再做 gamma 压缩：让中低密度也有可见色，同时峰值才到最暖档。
+  // count 用连续浮点（非整数档），热力层据此平滑插值出气象图式色带。
+  return raw.map(function (cell) {
+    const ratio = peak > 0 ? cell.v / peak : 0;
+    const shaped = Math.pow(ratio, 0.72);
+    return {
+      lat: cell.lat,
+      lng: cell.lng,
+      count: Math.max(0.5, shaped * HEAT_MAX_LEVELS)
+    };
+  });
 }
 
 function isFiniteNumber(v) {
@@ -678,14 +752,16 @@ function renderSvgHeat(overlay, items, onMarkerClick) {
           // 先把只有 mapX/mapY 的老启事折算为区域级近似经纬度（不覆盖实测值），
           // 再按「分散标点 + 邻域密度」处理：每条启事保留自己的点与 id，不合并。
           const pts = aggregateHeatPoints(withApproxGeo(normalizeHeatItems(list), cfg.center));
-          // 热力层：所有散点 + 密度权重，颜色渐变反映集中程度
-          try { heat.setData(toHeatData(pts)); } catch (e) { /* 热力层异常不影响列表 */ }
+          // 热力层：网格 KDE 平滑密度场——把散点铺成规则网格、高斯核估算连续密度，
+          // 交给热力层插值成气象图式连续色带，不再把每条启事画成一个孤立色斑（点阵）。
+          // 定位仍由下面的独立小点 marker 承担，点击可打开对应启事。
+          const field = buildGridHeatField(pts);
+          try { heat.setData(field); } catch (e) { /* 热力层异常不影响列表 */ }
 
-          // 热力强度上限跟随密度峰值：没有热点时也不至于把全部数据压成透明
-          const peak = pts.reduce(function (m, p) { return Math.max(m, p.count || 0); }, 0);
-          if (typeof heat.setMax === 'function' && peak > 0) {
-            // 用峰值的一部分作为上限：中密度点也能落到渐变中段，而不是全被压在透明起点附近
-            try { heat.setMax(Math.max(3, Math.ceil(peak * 0.6))); } catch (e) { /* 老版本 SDK 无 setMax，忽略 */ }
+          // 密度场已归一化到 [0, HEAT_MAX_LEVELS]，max 固定保证色阶稳定可比：
+          // 稀疏区落在渐变起点（近透明）、高发区落到最暖档，整片连续过渡。
+          if (typeof heat.setMax === 'function') {
+            try { heat.setMax(HEAT_MAX_LEVELS); } catch (e) { /* 老版本 SDK 无 setMax，忽略 */ }
           }
 
           // 定位小点：每条启事一个点，id 为真实启事 id，统一 dot 样式（不按密度着色）
@@ -733,10 +809,14 @@ function renderSvgHeat(overlay, items, onMarkerClick) {
     withApproxGeo: withApproxGeo,
     toHeatData: toHeatData,
     toMarkerData: toMarkerData,
+    buildGridHeatField: buildGridHeatField,
     buildPublishCoords: buildPublishCoords,
     renderSvgHeat: renderSvgHeat,
     HEAT_STOPS: HEAT_STOPS,
     heatStop: heatStop,
+    HEAT_GRID_COLS: HEAT_GRID_COLS,
+    HEAT_GRID_ROWS: HEAT_GRID_ROWS,
+    HEAT_MAX_LEVELS: HEAT_MAX_LEVELS,
     MAP_GL_HEIGHT: MAP_GL_HEIGHT,
     MAP_CONFIG_ENDPOINT: MAP_CONFIG_ENDPOINT
   };
@@ -759,6 +839,7 @@ if (typeof module !== 'undefined' && module.exports) {
     withApproxGeo: withApproxGeo,
     toHeatData: toHeatData,
     toMarkerData: toMarkerData,
+    buildGridHeatField: buildGridHeatField,
     canFitBounds: canFitBounds,
     fitPoints: fitPoints,
     svgPointFromLocation: svgPointFromLocation,
@@ -768,6 +849,9 @@ if (typeof module !== 'undefined' && module.exports) {
     campusZoneAt: campusZoneAt,
     isChinaGcj02: isChinaGcj02,
     HEAT_STOPS: HEAT_STOPS,
-    heatStop: heatStop
+    heatStop: heatStop,
+    HEAT_GRID_COLS: HEAT_GRID_COLS,
+    HEAT_GRID_ROWS: HEAT_GRID_ROWS,
+    HEAT_MAX_LEVELS: HEAT_MAX_LEVELS
   };
 }

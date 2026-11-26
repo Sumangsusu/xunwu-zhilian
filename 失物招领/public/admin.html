@@ -739,30 +739,44 @@
         const pts = window.CampusMapGL && window.CampusMapGL.aggregateHeatPoints
             ? window.CampusMapGL.aggregateHeatPoints(geo)
             : geo.map(i => ({ lng: i.lng, lat: i.lat, count: 1 }));
-        // 与页面一致：底色渐变反映集中度，小圆点只负责定位（不带外晕、不按密度着色）。
-        const HEAT_STOPS = (window.CampusMapGL && window.CampusMapGL.HEAT_STOPS) || [
+        // 与页面一致：网格 KDE 平滑密度场——把散点铺成规则网格、高斯核估算连续密度，
+        // 再按连续色阶插值画成气象图式平滑色带，绝不出现一个个孤立色斑（点阵）。
+        const CM = window.CampusMapGL || {};
+        const field = CM.buildGridHeatField ? CM.buildGridHeatField(pts) : [];
+        const STOPS = (CM.HEAT_STOPS || [
             { main: '#0E9F8E' }, { main: '#EAB308' }, { main: '#EA580C' }, { main: '#E11D48' }
-        ];
-        const heatStop = (window.CampusMapGL && window.CampusMapGL.heatStop) || function (n) {
-            return HEAT_STOPS[n >= 7 ? 3 : (n >= 5 ? 2 : (n >= 3 ? 1 : 0))];
-        };
+        ]).map(s => s.main);
         const rgba = (hex, a) => {
             const h = String(hex).replace('#', '');
             return 'rgba(' + parseInt(h.slice(0, 2), 16) + ',' + parseInt(h.slice(2, 4), 16) + ',' + parseInt(h.slice(4, 6), 16) + ',' + a + ')';
         };
-        // 先铺气象式色带：更大半径、半透明、边缘完全透明，连成柔和色带而非可见圆圈。
-        pts.forEach(p => {
-            const x = px(p.lng), y = py(p.lat);
-            const stop = heatStop(p.count);
-            const radius = 90 + Math.min(p.count, 12) * 12;
-            const alpha = Math.min(0.34, 0.10 + p.count * 0.035);
-            const g = ctx.createRadialGradient(x, y, 0, x, y, radius);
-            g.addColorStop(0, rgba(stop.main, alpha));
-            g.addColorStop(0.55, rgba(stop.main, alpha * 0.4));
-            g.addColorStop(1, rgba(stop.main, 0));
-            ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, radius, 0, Math.PI * 2); ctx.fill();
+        // 连续色阶插值：把密度 0..100 映射到 青绿→黄→橙→玫红 的平滑 RGB 过渡
+        const heatColor = (t) => {
+            const seg = Math.max(0, Math.min(STOPS.length - 2, Math.floor(t * (STOPS.length - 1))));
+            const local = Math.max(0, Math.min(1, t * (STOPS.length - 1) - seg));
+            const c1 = STOPS[seg].replace('#', ''), c2 = STOPS[seg + 1].replace('#', '');
+            const ch = (i) => Math.round(parseInt(c1.slice(i, i + 2), 16) * (1 - local) + parseInt(c2.slice(i, i + 2), 16) * local);
+            return [ch(0), ch(2), ch(4)];
+        };
+        // 底图色场：每个格点画一个径向渐变、边缘完全透明，密集格点相互重叠连成平滑色带。
+        const maxLevel = CM.HEAT_MAX_LEVELS || 100;
+        // 相邻格点像素间距 -> 半径取约 1.8 倍，保证色斑充分重叠、连成连续色带不呈点阵。
+        const cellStep = field.length > 1 ? Math.abs(px(field[1].lng) - px(field[0].lng)) : 0;
+        const cellRadius = Math.max(cellStep * 1.8, 14);
+        field.forEach(g => {
+            const x = px(g.lng), y = py(g.lat);
+            const t = Math.max(0, Math.min(1, g.count / maxLevel));
+            if (t < 0.04) return;
+            const rgb = heatColor(t);
+            const radius = cellRadius;
+            const alpha = Math.min(0.34, 0.06 + t * 0.30);
+            const grad = ctx.createRadialGradient(x, y, 0, x, y, radius);
+            grad.addColorStop(0, 'rgba(' + rgb.join(',') + ',' + alpha.toFixed(3) + ')');
+            grad.addColorStop(0.6, 'rgba(' + rgb.join(',') + ',' + (alpha * 0.5).toFixed(3) + ')');
+            grad.addColorStop(1, 'rgba(' + rgb.join(',') + ',0)');
+            ctx.fillStyle = grad; ctx.beginPath(); ctx.arc(x, y, radius, 0, Math.PI * 2); ctx.fill();
         });
-        // 再画极小的点状标记：深墨色 + 细白描边，颜色不承载密度信息。
+        // 极小点状标记：每条启事一个，只负责定位与点击语义，颜色不承载密度信息。
         pts.forEach(p => {
             const x = px(p.lng), y = py(p.lat);
             ctx.fillStyle = '#20304F'; ctx.beginPath(); ctx.arc(x, y, 2.2, 0, Math.PI * 2); ctx.fill();
@@ -770,7 +784,7 @@
         });
         ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
         ctx.fillStyle = 'rgba(32,48,79,.85)'; ctx.font = 'bold 14px sans-serif';
-        ctx.fillText('武汉大学 · 失物分布（小点定位 · 气象式底色越暖越集中 · 不含底图）', 16, 30);
+        ctx.fillText('武汉大学 · 失物分布（小点定位 · 平滑密度色场越暖越集中 · 不含底图）', 16, 30);
         ctx.fillStyle = '#20304F'; ctx.font = '12px sans-serif';
         ctx.fillText('共 ' + geo.length + ' 条带坐标启事 · 导出 ' + new Date().toLocaleString('zh-CN'), 16, H - 16);
     }
