@@ -182,7 +182,7 @@
                     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                         <div>
                             <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
-                                <span class="text-xs text-slate-500">失物热力分布（武汉大学 · 真实地图 · 小点定位、底色表示集中度）</span>
+                                <span class="text-xs text-slate-500">失物热力分布（武汉大学 · 真实地图 · 小点定位、气象式底色色带表示集中度）</span>
                                 <span class="inline-flex items-center gap-2 text-xs text-slate-500 heat-legend">
                                     <span class="heat-legend-bar"></span>
                                     <span>稀疏</span><span>一般</span><span>集中</span><span>高发</span>
@@ -673,7 +673,7 @@
             } else {
                 notice.classList.remove('hidden');
                 text.textContent = ADMIN_HEAT_FALLBACK_TEXT[handle.reason] ||
-                    '当前使用校内示意图热力图；小点表示启事位置，底色越暖越集中，点击小点可查看详情。';
+                    '当前使用校内示意图热力图；小点表示启事位置，底图像降水量 / 气温分布图那样由冷到暖表示集中度，点击小点可查看详情。';
             }
         }
         if (typeof handle.update === 'function') handle.update(adminHeatItems());
@@ -750,26 +750,27 @@
             const h = String(hex).replace('#', '');
             return 'rgba(' + parseInt(h.slice(0, 2), 16) + ',' + parseInt(h.slice(2, 4), 16) + ',' + parseInt(h.slice(4, 6), 16) + ',' + a + ')';
         };
-        // 先铺整体底色：相邻径向渐变互相叠加、边缘完全透明，连成色带而不是可见圆圈。
+        // 先铺气象式色带：更大半径、极低不透明度、边缘完全透明，连成柔和色带而非可见圆圈。
         pts.forEach(p => {
             const x = px(p.lng), y = py(p.lat);
             const stop = heatStop(p.count);
-            const radius = 48 + Math.min(p.count, 10) * 10;
-            const alpha = Math.min(0.30, 0.08 + p.count * 0.025);
+            const radius = 72 + Math.min(p.count, 10) * 12;
+            const alpha = Math.min(0.22, 0.05 + p.count * 0.02);
             const g = ctx.createRadialGradient(x, y, 0, x, y, radius);
             g.addColorStop(0, rgba(stop.main, alpha));
+            g.addColorStop(0.55, rgba(stop.main, alpha * 0.4));
             g.addColorStop(1, rgba(stop.main, 0));
             ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, radius, 0, Math.PI * 2); ctx.fill();
         });
-        // 再画统一定位小点：深墨色 + 白描边，颜色不承载密度信息。
+        // 再画极小的点状标记：深墨色 + 细白描边，颜色不承载密度信息。
         pts.forEach(p => {
             const x = px(p.lng), y = py(p.lat);
-            ctx.fillStyle = '#20304F'; ctx.beginPath(); ctx.arc(x, y, 3.2, 0, Math.PI * 2); ctx.fill();
-            ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.2; ctx.stroke();
+            ctx.fillStyle = '#20304F'; ctx.beginPath(); ctx.arc(x, y, 2.2, 0, Math.PI * 2); ctx.fill();
+            ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 0.9; ctx.stroke();
         });
         ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
         ctx.fillStyle = 'rgba(32,48,79,.85)'; ctx.font = 'bold 14px sans-serif';
-        ctx.fillText('武汉大学 · 失物分布散点（底色越暖越集中 · 不含底图）', 16, 30);
+        ctx.fillText('武汉大学 · 失物分布（小点定位 · 气象式底色越暖越集中 · 不含底图）', 16, 30);
         ctx.fillStyle = '#20304F'; ctx.font = '12px sans-serif';
         ctx.fillText('共 ' + geo.length + ' 条带坐标启事 · 导出 ' + new Date().toLocaleString('zh-CN'), 16, H - 16);
     }

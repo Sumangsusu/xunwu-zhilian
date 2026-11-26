@@ -6,10 +6,10 @@
 //     前端仓库只保留占位符与域名白名单校验，不出现任何可用 key 或写死的外部地址；
 //   - 坐标系 GCJ-02：SDK 事件返回的 latLng 直接入库，不做坐标系转换，
 //     也不把 WGS-84 / BD-09 喂给 SDK（否则点位整体偏移）；
-//   - 热力图采用「小点定位 + 底色渐变」：每条启事只画一个不遮挡底图的小圆点（携带真实
-//     坐标与 id，点击可打开对应启事）；集中程度完全由地图底色的热力渐变层表达，标记本身
-//     不再叠加外晕/计数圆圈。进入前端的数据先做字段白名单，联系方式、图片、描述、防冒领
-//     问答一律不进入页面全局对象；
+//   - 热力图采用「小点定位 + 气象式底色色带」：每条启事只画一个极小的点状标记（携带真实
+//     坐标与 id，点击可打开对应启事）；集中程度由一层低透明度、边缘柔和的连续色带表达
+//     （类似降水量 / 气温分布图），底图路网始终清晰可见，不叠加外晕 / 计数圆圈。进入前端
+//     的数据先做字段白名单，联系方式、图片、描述、防冒领问答一律不进入页面全局对象；
 //   - 地图容器使用固定像素高度，避免 flex 布局下高度为 0 导致白屏；
 //   - 不自绘国界、不改官方底图标注；不使用预览环境的运行时代理模板；
 //   - 官方真实 API：TMap.Map / TMap.LatLng / TMap.MultiMarker / TMap.MarkerStyle /
@@ -58,14 +58,15 @@ const HEAT_GRID_DEG = 0.0005;
 // 后端下发地图配置的接口（由 A 的部署侧实现；仓库内只有接口路径，没有 key）
 const MAP_CONFIG_ENDPOINT = '/api/map/config';
 
-// ===== 热力视觉：底色密度色阶 =====
-// 不再是单调的中心点 + 橙色圆圈：按邻域条数分 4 档，低密度冷色（青绿）、高密度暖色（玫红），
-// 色值只用于地图底色的热力渐变层（GL Heat / SVG 模糊色带 / PNG 导出），不画在定位小点上。
+// ===== 热力视觉：气象式底色色带（降水量 / 气温分布图观感） =====
+// 4 档色阶沿用气象惯用的冷到暖：青绿(稀疏) → 黄(一般) → 橙(集中) → 玫红(高发)。
+// 色值只用于「低透明度、边缘柔和、彼此连片」的底色带（GL Heat / SVG 模糊色带 / PNG 导出），
+// 不画在定位小点上；wash alpha 刻意压低，保证底图路网 / 地名清晰透出，不再盖住地图。
 const HEAT_STOPS = [
-  { key: 'low', name: '稀疏', main: '#0E9F8E', light: '#5EEAD4', dark: '#0B6E63', glow: 'rgba(14,159,142,0.16)' },
-  { key: 'mid', name: '一般', main: '#EAB308', light: '#FDE047', dark: '#A16207', glow: 'rgba(234,179,8,0.18)' },
-  { key: 'high', name: '集中', main: '#EA580C', light: '#FDBA74', dark: '#9A3412', glow: 'rgba(234,88,12,0.20)' },
-  { key: 'peak', name: '高发', main: '#E11D48', light: '#FDA4AF', dark: '#9F1239', glow: 'rgba(225,29,72,0.22)' }
+  { key: 'low', name: '稀疏', main: '#0E9F8E', light: '#5EEAD4', dark: '#0B6E63', wash: 0.14 },
+  { key: 'mid', name: '一般', main: '#EAB308', light: '#FDE047', dark: '#A16207', wash: 0.17 },
+  { key: 'high', name: '集中', main: '#EA580C', light: '#FDBA74', dark: '#9A3412', wash: 0.21 },
+  { key: 'peak', name: '高发', main: '#E11D48', light: '#FDA4AF', dark: '#9F1239', wash: 0.25 }
 ];
 // 按聚合条数取色阶档位（1-2 / 3-4 / 5-6 / 7+）
 function heatStop(count) {
@@ -317,8 +318,8 @@ function campusMapMarkup() {
     </g>`;
   }).join('');
   return `<svg class="campus-map-svg w-full h-auto" viewBox="0 0 ${CAMPUS_MAP_W} ${CAMPUS_MAP_H}" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">
-    <defs><filter id="heatBlur" x="-30%" y="-30%" width="160%" height="160%">
-      <feGaussianBlur stdDeviation="22"/>
+    <defs><filter id="heatBlur" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="34"/>
     </filter></defs>
     <rect width="${CAMPUS_MAP_W}" height="${CAMPUS_MAP_H}" fill="#EDF2EC"/>
     ${roads}
@@ -366,19 +367,19 @@ function renderSvgHeat(overlay, items, onMarkerClick) {
     return { id: Number(i.id), x: Number(i.mapX), y: Number(i.mapY), type: i.type, density: Math.max(1, density) };
   });
 
-  // 底色层：密度越高，色块半径与不透明度越大；高斯模糊把相邻色块连成一片连续色带，
-  // 视觉上是「地图背景整体变色」，而不是每个点外面套一个可见圆圈。
+  // 底色层：模仿降水 / 气温分布图——更大半径、极低不透明度、大尺度高斯模糊，
+  // 让相邻色块连成一整片柔和色带并透出底图路网，不出现可见的圆圈边界。
   const wash = pts.map(function (p) {
     const stop = heatStop(p.density);
-    const radius = 70 + Math.min(p.density, 10) * 7;
-    const alpha = Math.min(0.40, 0.10 + p.density * 0.035);
+    const radius = 95 + Math.min(p.density, 10) * 9;
+    const alpha = Math.min(0.22, 0.05 + p.density * 0.022);
     return `<circle class="heat-wash" cx="${p.x}" cy="${p.y}" r="${radius}" fill="${stop.main}" opacity="${alpha.toFixed(2)}" pointer-events="none"/>`;
   }).join('');
 
-  // 定位层：统一的小圆点（深墨色 + 白描边），颜色不承载密度信息，避免与底色渐变重复。
+  // 定位层：极小的点状标记（深墨色 + 细白描边），颜色不承载密度信息，避免与底色色带重复。
   const marks = pts.map(function (p) {
     return `<g class="heat-dot" data-id="${p.id}" data-type="${p.type}" data-density="${p.density}" style="cursor:pointer">
-      <circle cx="${p.x}" cy="${p.y}" r="4.5" fill="#20304F" stroke="#ffffff" stroke-width="1.6"/>
+      <circle cx="${p.x}" cy="${p.y}" r="2.6" fill="#20304F" stroke="#ffffff" stroke-width="1"/>
       <title>启事 #${p.id} · 点击查看</title>
     </g>`;
   }).join('');
@@ -462,17 +463,17 @@ function renderSvgHeat(overlay, items, onMarkerClick) {
     '<circle cx="13" cy="13" r="3" fill="#ffffff"/></svg>';
 
   /**
-   * 统一的小圆点样式：每条启事一个点，只表示「这里有一条启事」，
-   * 不带外晕、不带密度色、不带计数——集中度完全交给地图底色的热力渐变层表达。
-   * 图标画布留透明边距，保证 20px 点击区域的同时视觉上只是一个 4px 小点。
+   * 统一的点状样式：每条启事一个极小的点，只表示「这里有一条启事」，
+   * 不带外晕、不带密度色、不带计数——集中度完全交给底色的气象式色带表达。
+   * 图标画布留透明边距保证点击热区，视觉上只是一个约 2.6px 的小点（呈点状而非饼状）。
    */
   function heatPinSvg() {
-    const size = 20;
+    const size = 18;
     const c = size / 2;
-    const core = 4;
+    const core = 2.6;
     const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + size + '" height="' + size +
       '" viewBox="0 0 ' + size + ' ' + size + '">' +
-      '<circle cx="' + c + '" cy="' + c + '" r="' + core + '" fill="#20304F" stroke="#ffffff" stroke-width="1.4"/>' +
+      '<circle cx="' + c + '" cy="' + c + '" r="' + core + '" fill="#20304F" stroke="#ffffff" stroke-width="0.9"/>' +
       '</svg>';
     return { size: size, src: 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg) };
   }
@@ -629,18 +630,20 @@ function renderSvgHeat(overlay, items, onMarkerClick) {
         });
         handle.update = function () { return 0; };
       } else {
-        // 底色热力层：半径放大、透明度压低，让相邻热区连成整体色带而不是一个个圆斑；
+        // 气象式底色带：半径加大、透明度整体压低，让相邻热区连成一整片柔和色带，
+        // 底图路网 / 地名始终清晰透出（类似降水量 / 气温分布图），不再盖住原地图。
         // max 按当前峰值动态调整，避免权重被固定上限压到透明区。
         const heat = new T.visualization.Heat({
           map: map,
-          radius: 48,
+          radius: 62,
           max: 6,
           min: 0,
-          // 冷到暖的整体底色：稀疏青绿 -> 一般黄 -> 集中橙 -> 高发玫红。
+          // 渐变起点完全透明、低值段极低不透明度、只在峰值给出稍重的暖色：
+          // 稀疏青绿 -> 一般黄 -> 集中橙 -> 高发玫红，全程 alpha <= 0.24 保证底图可见。
           gradientColor: {
-            0.08: 'rgba(14,159,142,0.06)', 0.28: 'rgba(14,159,142,0.26)',
-            0.52: 'rgba(234,179,8,0.34)', 0.76: 'rgba(234,88,12,0.42)',
-            1: 'rgba(225,29,72,0.52)'
+            0: 'rgba(14,159,142,0)', 0.25: 'rgba(14,159,142,0.06)',
+            0.5: 'rgba(234,179,8,0.11)', 0.75: 'rgba(234,88,12,0.18)',
+            1: 'rgba(225,29,72,0.24)'
           }
         });
         handle.heat = heat;
