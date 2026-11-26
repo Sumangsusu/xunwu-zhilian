@@ -6,8 +6,9 @@
 //     前端仓库只保留占位符与域名白名单校验，不出现任何可用 key 或写死的外部地址；
 //   - 坐标系 GCJ-02：SDK 事件返回的 latLng 直接入库，不做坐标系转换，
 //     也不把 WGS-84 / BD-09 喂给 SDK（否则点位整体偏移）；
-//   - 热力图只做网格聚合，不渲染单条启事的精确坐标；进入前端的数据先做字段白名单，
-//     联系方式、图片、描述、防冒领问答一律不进入页面全局对象；
+//   - 热力图采用「分散标点 + 渐变热力色」：每条启事一个独立标点（携带真实坐标与 id，
+//     点击可打开对应启事），热力层的颜色由邻域密度决定，越集中越暖；进入前端的数据先做
+//     字段白名单，联系方式、图片、描述、防冒领问答一律不进入页面全局对象；
 //   - 地图容器使用固定像素高度，避免 flex 布局下高度为 0 导致白屏；
 //   - 不自绘国界、不改官方底图标注；不使用预览环境的运行时代理模板；
 //   - 官方真实 API：TMap.Map / TMap.LatLng / TMap.MultiMarker / TMap.MarkerStyle /
@@ -50,7 +51,8 @@ const CAMPUS_ZONE_COLORS = {
 const MAP_ALLOWED_HOST = 'map.qq.com';
 // 地图容器固定高度（px）。flex 布局下不显式给高度会白屏。
 const MAP_GL_HEIGHT = 460;
-// 热力聚合网格，约 50 米。聚合后才交给热力层，不渲染单条启事的精确坐标。
+// 密度采样半径，约 50 米：仅用于计算「某点周围有多密集」以决定该点的热力渐变颜色，
+// 不再把多条启事合并成一个点。每条启事保留自己的真实坐标与 id，可点击打开详情。
 const HEAT_GRID_DEG = 0.0005;
 // 后端下发地图配置的接口（由 A 的部署侧实现；仓库内只有接口路径，没有 key）
 const MAP_CONFIG_ENDPOINT = '/api/map/config';
@@ -148,18 +150,43 @@ function normalizeHeatItems(items) {
   });
 }
 
-/** 网格聚合：输出网格中心（已模糊）+ 条数，绝不输出单条启事的精确坐标或 id。 */
+/**
+ * 分散标点 + 密度权重：每条启事保留自己的真实坐标与 id（可点击打开对应启事），
+ * 同时计算它周边 HEAT_GRID_DEG 半径内的邻居条数作为 count —— 热力层据此上色，
+ * 越集中的点位 count 越高、颜色越暖，实现「渐变颜色反映集中程度」。
+ * 不再把多条启事合并成一个网格中心点。
+ */
 function aggregateHeatPoints(items, gridDeg) {
   const g = Number(gridDeg) > 0 ? Number(gridDeg) : HEAT_GRID_DEG;
-  const buckets = new Map();
-  (Array.isArray(items) ? items : []).forEach(function (p) {
-    if (p.lng == null || p.lat == null || !isChinaGcj02(p.lng, p.lat)) return;
-    const ix = Math.round(p.lng / g), iy = Math.round(p.lat / g);
-    const k = ix + ':' + iy;
-    if (!buckets.has(k)) buckets.set(k, { lng: round6(ix * g), lat: round6(iy * g), count: 0 });
-    buckets.get(k).count += 1;
+  const pts = (Array.isArray(items) ? items : [])
+    .filter(function (p) { return p && p.lng != null && p.lat != null && isChinaGcj02(p.lng, p.lat); })
+    .map(function (p) {
+      return {
+        id: p.id != null ? Number(p.id) : null,
+        type: p.type === 'found' ? 'found' : 'lost',
+        lng: Number(p.lng),
+        lat: Number(p.lat),
+        approx: !!p.approx
+      };
+    });
+  // 每个点统计半径内的邻居数（含自身），作为热力渐变权重
+  const g2 = g * g;
+  return pts.map(function (p) {
+    let density = 0;
+    for (let i = 0; i < pts.length; i++) {
+      const dx = pts[i].lng - p.lng;
+      const dy = pts[i].lat - p.lat;
+      if (dx * dx + dy * dy <= g2) density++;
+    }
+    return {
+      id: p.id,
+      type: p.type,
+      lng: p.lng,
+      lat: p.lat,
+      approx: p.approx,
+      count: density
+    };
   });
-  return Array.from(buckets.values());
 }
 
 /**
@@ -185,11 +212,20 @@ function withApproxGeo(items, center) {
   });
 }
 
-/** 转成官方热力层 setData 的数据格式 [{lat,lng,count}] */
+/** 转成官方热力层 setData 的数据格式 [{lat,lng,count}]（count 为邻域密度，决定渐变色） */
 function toHeatData(points) {
   return (Array.isArray(points) ? points : []).map(function (p) {
     return { lat: p.lat, lng: p.lng, count: p.count };
   });
+}
+
+/** 转成可点击散点标记的数据：[{id,lat,lng,count}]，每条启事一个点、携带真实 id */
+function toMarkerData(points) {
+  return (Array.isArray(points) ? points : [])
+    .filter(function (p) { return p && p.id != null; })
+    .map(function (p) {
+      return { id: Number(p.id), lat: p.lat, lng: p.lng, count: p.count || 1 };
+    });
 }
 
 /** SDK 是否支持把多个点纳入视野（选点/降级桩不需要） */
@@ -302,20 +338,28 @@ function campusSvgPoint(svgEl, clientX, clientY) {
 }
 
 /**
- * SVG 模式的热力聚合徽章。
- * 视觉：密度色阶外晕 + 径向渐变实心圆 + 顶部高光弧 + 白色计数徽标，取代单调橙色圆圈。
- * 只用聚合网格中心（示意图坐标），不渲染单条启事精确坐标；保留 <circle> 供合规脚本校验。
+ * SVG 模式的分散标点热力图。
+ * 每条启事一个独立标点（在示意图坐标 x/y 上），外晕颜色按邻域密度取色（越集中越暖），
+ * 每个标点带 data-id，点击回调 onMarkerClick(id) 打开对应启事。
+ * 不再把多条启事合并成一个计数徽章。保留 <circle> 供合规脚本校验。
+ * @param {Element} overlay 覆盖层
+ * @param {Array} items 已归一化数据（含 mapX/mapY/id/type）
+ * @param {Function} [onMarkerClick] 点击标点回调，传启事 id
  */
-function renderSvgHeat(overlay, items) {
+function renderSvgHeat(overlay, items, onMarkerClick) {
   if (!overlay) return 0;
-  const agg = new Map();
-  (Array.isArray(items) ? items : []).forEach(function (i) {
-    if (i.mapX == null || i.mapY == null) return;
-    const k = Math.round(i.mapX) + ',' + Math.round(i.mapY);
-    if (!agg.has(k)) agg.set(k, { x: Math.round(i.mapX), y: Math.round(i.mapY), n: 0, lost: 0, found: 0 });
-    const p = agg.get(k);
-    p.n++;
-    if (i.type === 'lost') p.lost++; else p.found++;
+  const raw = (Array.isArray(items) ? items : []).filter(function (i) {
+    return i && i.mapX != null && i.mapY != null && i.id != null;
+  });
+  // 邻域密度：在 SVG 坐标系里按 60 单位（约一个功能区）统计邻居
+  const R = 60, R2 = R * R;
+  const pts = raw.map(function (i) {
+    let density = 0;
+    raw.forEach(function (j) {
+      const dx = j.mapX - i.mapX, dy = j.mapY - i.mapY;
+      if (dx * dx + dy * dy <= R2) density++;
+    });
+    return { id: Number(i.id), x: Number(i.mapX), y: Number(i.mapY), type: i.type, density: Math.max(1, density) };
   });
 
   const stops = HEAT_STOPS;
@@ -325,26 +369,30 @@ function renderSvgHeat(overlay, items) {
     </radialGradient>`;
   }).join('')}</defs>`;
 
-  const marks = Array.from(agg.values()).map(function (p) {
-    const stop = heatStop(p.n);
+  const marks = pts.map(function (p) {
+    const stop = heatStop(p.density);
     const si = Math.max(0, stops.indexOf(stop));
-    const halo = 26 + Math.min(p.n, 10) * 4;   // 外晕半径随密度增大
-    const core = 12 + Math.min(p.n, 8) * 1.6;  // 实心圆半径
-    const label = p.n >= 9 ? '9+' : String(p.n);
-    const badgeR = label.length > 1 ? 12 : 9;
-    return `<g>
-      <circle cx="${p.x}" cy="${p.y}" r="${halo}" fill="${stop.main}" opacity="0.14"/>
-      <circle cx="${p.x}" cy="${p.y}" r="${halo * 0.72}" fill="${stop.main}" opacity="0.16"/>
-      <circle cx="${p.x + 1}" cy="${p.y + 2}" r="${core}" fill="#20304F" opacity="0.22"/>
-      <circle cx="${p.x}" cy="${p.y}" r="${core}" fill="url(#heatG${si})" stroke="#ffffff" stroke-width="2.6"/>
-      <path d="M ${p.x - core * 0.62} ${p.y - core * 0.4} A ${core * 0.78} ${core * 0.78} 0 0 1 ${p.x + core * 0.5} ${p.y - core * 0.62}"
-        fill="none" stroke="#ffffff" stroke-opacity="0.5" stroke-width="2" stroke-linecap="round"/>
-      <circle cx="${p.x}" cy="${p.y}" r="${badgeR}" fill="#20304F" opacity="0.72"/>
-      <text x="${p.x}" y="${p.y + 4.5}" text-anchor="middle" font-family="Arial,sans-serif" font-size="12" font-weight="800" fill="#ffffff">${label}</text>
+    const halo = 14 + Math.min(p.density, 8) * 2.6; // 外晕随密度增大
+    const core = 7;                                  // 小圆点半径，不遮挡底图
+    return `<g class="heat-dot" data-id="${p.id}" data-type="${p.type}" style="cursor:pointer">
+      <circle cx="${p.x}" cy="${p.y}" r="${halo}" fill="${stop.main}" opacity="0.16"/>
+      <circle cx="${p.x}" cy="${p.y}" r="${core}" fill="url(#heatG${si})" stroke="#ffffff" stroke-width="2"/>
+      <title>启事 #${p.id} · 周边 ${p.density} 条 · 点击查看</title>
     </g>`;
   }).join('');
   overlay.innerHTML = defs + marks;
-  return agg.size;
+
+  // 事件委托：给每个标点绑定点击（SVG g 元素在 innerHTML 重绘后需重新绑定）
+  if (typeof onMarkerClick === 'function' && typeof overlay.querySelectorAll === 'function') {
+    Array.prototype.forEach.call(overlay.querySelectorAll('.heat-dot'), function (g) {
+      g.addEventListener('click', function (evt) {
+        evt.stopPropagation();
+        const id = Number(g.getAttribute('data-id'));
+        if (id) onMarkerClick(id);
+      });
+    });
+  }
+  return pts.length;
 }
 
 // ---------------- 浏览器运行时（Node 环境不会执行） ----------------
@@ -412,55 +460,53 @@ function renderSvgHeat(overlay, items) {
     '<circle cx="13" cy="13" r="3" fill="#ffffff"/></svg>';
 
   /**
-   * 聚合计数徽章：密度色阶外晕 + 径向渐变实心圆 + 顶部高光 + 深色计数徽标。
-   * 取代单调的「橙色实心圆 + 数字」，低密度冷色、高密度暖色，一眼分辨热点。
-   * 不依赖 SDK 的 label/content，位置用聚合网格中心（已模糊到 ~50m）。
+   * 分散标点样式：每条启事一个小圆点，颜色按「邻域密度档」取色（越集中越暖），
+   * 与热力渐变层语义一致。不再显示计数数字——密度由颜色渐变表达。
+   * 每条标点携带真实启事 id，点击打开对应详情。
+   * @param {number} density 邻域密度（该点周边启事数）
    */
-  function heatPinSvg(n) {
-    const count = Math.max(1, Number(n) || 1);
-    const label = count >= 9 ? '9+' : String(count);
-    const stop = heatStop(count);
-    const size = 48;
+  function heatPinSvg(density) {
+    const stop = heatStop(density);
+    const size = 30;
     const c = size / 2;
-    const halo = 22;
-    const core = 15 + Math.min(count, 6) * 0.6;
-    const badgeR = label.length > 1 ? 12 : 10;
+    const halo = 13;
+    const core = 7;
     const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + size + '" height="' + size +
       '" viewBox="0 0 ' + size + ' ' + size + '">' +
       '<defs><radialGradient id="g" cx="34%" cy="28%" r="76%">' +
       '<stop offset="0%" stop-color="' + stop.light + '"/>' +
       '<stop offset="55%" stop-color="' + stop.main + '"/>' +
       '<stop offset="100%" stop-color="' + stop.dark + '"/></radialGradient></defs>' +
-      '<circle cx="' + c + '" cy="' + c + '" r="' + halo + '" fill="' + stop.main + '" fill-opacity="0.14"/>' +
-      '<circle cx="' + c + '" cy="' + c + '" r="' + (halo * 0.72) + '" fill="' + stop.main + '" fill-opacity="0.18"/>' +
-      '<circle cx="' + (c + 1) + '" cy="' + (c + 2) + '" r="' + core + '" fill="#20304F" fill-opacity="0.22"/>' +
-      '<circle cx="' + c + '" cy="' + c + '" r="' + core + '" fill="url(#g)" stroke="#ffffff" stroke-width="2.6"/>' +
-      '<path d="M ' + (c - core * 0.62) + ' ' + (c - core * 0.4) +
-      ' A ' + (core * 0.78) + ' ' + (core * 0.78) + ' 0 0 1 ' + (c + core * 0.5) + ' ' + (c - core * 0.62) +
-      '" fill="none" stroke="#ffffff" stroke-opacity="0.5" stroke-width="2" stroke-linecap="round"/>' +
-      '<circle cx="' + c + '" cy="' + c + '" r="' + badgeR + '" fill="#20304F" fill-opacity="0.72"/>' +
-      '<text x="' + c + '" y="' + (c + 4.5) + '" text-anchor="middle" font-family="Arial,sans-serif" ' +
-      'font-size="13" font-weight="800" fill="#ffffff">' + label + '</text></svg>';
+      '<circle cx="' + c + '" cy="' + c + '" r="' + halo + '" fill="' + stop.main + '" fill-opacity="0.16"/>' +
+      '<circle cx="' + c + '" cy="' + c + '" r="' + core + '" fill="url(#g)" stroke="#ffffff" stroke-width="2"/>' +
+      '</svg>';
     return { size: size, src: 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg) };
+  }
+
+  // 密度档样式：d1=稀疏 … d4=高发。取档逻辑与 heatStop 一致（1-2/3-4/5-6/7+）。
+  function densityStyleKey(density) {
+    const n = Math.max(1, Number(density) || 1);
+    return 'd' + (n >= 7 ? 4 : (n >= 5 ? 3 : (n >= 3 ? 2 : 1)));
   }
 
   function buildHeatMarkerStyles(T) {
     const styles = {};
-    for (let n = 1; n <= 9; n++) {
-      const pin = heatPinSvg(n);
-      styles['n' + n] = new T.MarkerStyle({
+    // 每档用该档的代表密度值取色（1/3/5/7）
+    [1, 3, 5, 7].forEach(function (density, idx) {
+      const pin = heatPinSvg(density);
+      styles['d' + (idx + 1)] = new T.MarkerStyle({
         width: pin.size, height: pin.size,
         anchor: { x: pin.size / 2, y: pin.size / 2 },
         src: pin.src
       });
-    }
+    });
     return styles;
   }
 
-  function svgHeatUpdater(container) {
+  function svgHeatUpdater(container, onMarkerClick) {
     return function (list) {
       const overlay = container.querySelector('#mapOverlay');
-      return renderSvgHeat(overlay, normalizeHeatItems(list));
+      return renderSvgHeat(overlay, normalizeHeatItems(list), onMarkerClick);
     };
   }
 
@@ -469,6 +515,7 @@ function renderSvgHeat(overlay, items) {
    * options:
    *   pick: true              -> 发布页选点模式
    *   onPick(coords)          -> 选点回调，coords 已含双写字段
+   *   onMarkerClick(id)       -> 点击热力散点回调，传启事 id（供热力图打开详情）
    *   currentLocation()       -> 读取用户已填的地点文字（逆地理编码失败时用于匹配区域）
    *   onMode(handle)          -> 模式确定后的回调，供页面展示降级提示
    *   update(list) 由返回的 handle 提供，供热力图按筛选刷新
@@ -476,6 +523,7 @@ function renderSvgHeat(overlay, items) {
   async function mount(container, options) {
     const opts = options || {};
     const onPick = typeof opts.onPick === 'function' ? opts.onPick : function () { };
+    const onMarkerClick = typeof opts.onMarkerClick === 'function' ? opts.onMarkerClick : null;
     const handle = {
       mode: 'svg', reason: '', map: null, heat: null,
       update: function () { return 0; },
@@ -489,7 +537,7 @@ function renderSvgHeat(overlay, items) {
       handle.heat = null;
       container.style.height = '';
       container.innerHTML = campusMapMarkup();
-      handle.update = svgHeatUpdater(container);
+      handle.update = svgHeatUpdater(container, onMarkerClick);
       handle.destroy = function () { container.innerHTML = ''; };
       const svg = container.querySelector('svg');
       if (opts.pick && svg) {
@@ -612,8 +660,8 @@ function renderSvgHeat(overlay, items) {
         });
         handle.heat = heat;
 
-        // 离散计数标记：与降级 SVG 的"圆点+数字"视觉一致，管理员能一眼看清每处分布。
-        // 只用聚合网格中心，不渲染单条启事精确坐标。
+        // 可点击散点标记：每条启事一个点，携带真实启事 id，样式按邻域密度档取色。
+        // 点击标点触发 onMarkerClick(id)，由页面打开对应启事详情。
         let pinLayer = null;
         if (typeof T.MultiMarker === 'function' && typeof T.MarkerStyle === 'function') {
           pinLayer = new T.MultiMarker({
@@ -622,33 +670,48 @@ function renderSvgHeat(overlay, items) {
             geometries: []
           });
           handle.pinLayer = pinLayer;
+          // 事件名与腾讯 GL MultiMarker 一致：click，事件对象带 geometry.id。
+          // 桩环境/老版本没有 on 时安全跳过，不影响渲染。
+          if (typeof pinLayer.on === 'function') {
+            try {
+              pinLayer.on('click', function (evt) {
+                if (!onMarkerClick || !evt) return;
+                const g = evt.geometry || evt.geom || (evt.target && evt.target.geometry);
+                const rawId = g && (g.id != null ? g.id : (g.properties && g.properties.id));
+                const id = Number(rawId);
+                if (rawId != null && Number.isFinite(id) && id > 0) onMarkerClick(id);
+              });
+            } catch (e) { /* 事件绑定失败不影响渲染 */ }
+          }
         }
 
         handle.update = function (list) {
           // 先把只有 mapX/mapY 的老启事折算为区域级近似经纬度（不覆盖实测值），
-          // 再聚合。否则混合数据下只带示意图坐标的启事会被整批丢弃，地图只剩个别点。
+          // 再按「分散标点 + 邻域密度」处理：每条启事保留自己的点与 id，不合并。
           const pts = aggregateHeatPoints(withApproxGeo(normalizeHeatItems(list), cfg.center));
+          // 热力层：所有散点 + 密度权重，颜色渐变反映集中程度
           try { heat.setData(toHeatData(pts)); } catch (e) { /* 热力层异常不影响列表 */ }
 
-          // 热力强度上限跟随实际峰值：没有热点时也不至于把全部数据压成透明
+          // 热力强度上限跟随密度峰值：没有热点时也不至于把全部数据压成透明
           const peak = pts.reduce(function (m, p) { return Math.max(m, p.count || 0); }, 0);
           if (typeof heat.setMax === 'function' && peak > 0) {
             try { heat.setMax(Math.max(3, peak)); } catch (e) { /* 老版本 SDK 无 setMax，忽略 */ }
           }
 
+          // 散点标记：每条启事一个点，id 为真实启事 id，样式按密度档（d1-d4）
           if (pinLayer && typeof pinLayer.updateGeometries === 'function') {
             try {
-              pinLayer.updateGeometries(pts.map(function (p, idx) {
+              pinLayer.updateGeometries(toMarkerData(pts).map(function (p) {
                 return {
-                  id: 'heat-' + idx,
-                  styleId: 'n' + Math.min(9, Math.max(1, p.count)),
+                  id: String(p.id),
+                  styleId: densityStyleKey(p.count),
                   position: new T.LatLng(p.lat, p.lng)
                 };
               }));
             } catch (e) { /* 标记失败不影响热力层 */ }
           }
 
-          // 视野自适应：仅 overview（管理端）自动把全部聚合点纳入画面，管理员无需手动找点。
+          // 视野自适应：仅 overview（管理端）自动把全部散点纳入画面，管理员无需手动找点。
           // 公开热力页保持默认视野、由用户自己缩放，不被反复重置。
           // 只在点位集合变化时 fit，避免打断用户手动缩放。
           if (opts.overview === true && pts.length && canFitBounds(map, T)) {
@@ -679,6 +742,7 @@ function renderSvgHeat(overlay, items) {
     aggregateHeatPoints: aggregateHeatPoints,
     withApproxGeo: withApproxGeo,
     toHeatData: toHeatData,
+    toMarkerData: toMarkerData,
     buildPublishCoords: buildPublishCoords,
     renderSvgHeat: renderSvgHeat,
     HEAT_STOPS: HEAT_STOPS,
@@ -704,6 +768,7 @@ if (typeof module !== 'undefined' && module.exports) {
     aggregateHeatPoints: aggregateHeatPoints,
     withApproxGeo: withApproxGeo,
     toHeatData: toHeatData,
+    toMarkerData: toMarkerData,
     canFitBounds: canFitBounds,
     fitPoints: fitPoints,
     svgPointFromLocation: svgPointFromLocation,

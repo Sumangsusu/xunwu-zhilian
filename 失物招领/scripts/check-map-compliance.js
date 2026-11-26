@@ -91,20 +91,23 @@ check('不同区域折算到不同点位（不止 1 个点）', approx[1].lng !=
 check('无坐标无示意图的启事保持无经纬度', approx[3].lng == null && approx[3].lat == null);
 check('无经纬度时仍能降级到默认校园中心', M.withApproxGeo([{ mapX: 420, mapY: 100 }], null)[0].lng != null);
 const mixedAgg = M.aggregateHeatPoints(approx);
-check('混合数据聚合出多个网格点', mixedAgg.length >= 2, JSON.stringify(mixedAgg));
+check('混合数据下每条启事各自成一个散点（3 条有坐标）', mixedAgg.length === 3, JSON.stringify(mixedAgg));
 
-// 聚合：不渲染单条精确坐标
+// 分散标点：每条启事保留自己的坐标与 id，count 为邻域密度（决定渐变色）
 const agg = M.aggregateHeatPoints([
-    { lng: 114.36012, lat: 30.53012 },
-    { lng: 114.36018, lat: 30.53018 },
-    { lng: 115.00000, lat: 31.00000 }
+    { id: 10, lng: 114.36012, lat: 30.53012 },
+    { id: 11, lng: 114.36018, lat: 30.53018 },
+    { id: 12, lng: 115.00000, lat: 31.00000 }
 ]);
-check('热力按网格聚合成 2 组', agg.length === 2, JSON.stringify(agg));
-check('聚合结果只有 lng/lat/count', Object.keys(agg[0]).sort().join(',') === 'count,lat,lng');
-check('聚合后不含单条精确坐标', !agg.some(p => p.lng === 114.36012 || p.lat === 30.53012));
-check('聚合 count 正确', agg.some(p => p.count === 2));
+check('分散标点：3 条启事生成 3 个点（不再合并成 1 点）', agg.length === 3, JSON.stringify(agg));
+check('每个散点带 id/type/lng/lat/count', ['count', 'id', 'lat', 'lng', 'type'].every(k => k in agg[0]), Object.keys(agg[0]).sort().join(','));
+check('散点保留单条真实坐标（供点击定位）', agg.some(p => p.lng === 114.36012 && p.lat === 30.53012));
+check('散点携带真实启事 id（供点击跳转）', agg.map(p => p.id).sort().join(',') === '10,11,12');
+check('邻域密度 count 正确（相邻 2 条互相计数）', agg.filter(p => p.count === 2).length === 2 && agg.some(p => p.count === 1));
 const heatData = M.toHeatData(agg);
-check('setData 格式为 {lat,lng,count}', Object.keys(heatData[0]).sort().join(',') === 'count,lat,lng');
+check('热力层 setData 格式为 {lat,lng,count}', Object.keys(heatData[0]).sort().join(',') === 'count,lat,lng');
+const markerData = M.toMarkerData(agg);
+check('标记数据每条带真实 id（可点击打开对应启事）', markerData.length === 3 && markerData.every(p => p.id > 0), JSON.stringify(markerData));
 
 // 双写坐标
 const glCoords = M.buildPublishCoords({ mode: 'gl', lng: 114.360123456, lat: 30.530123456, locationText: '图书馆三楼' });
@@ -164,7 +167,7 @@ function loadModule(ctx) {
 }
 
 function fakeTMap() {
-    const calls = { heatData: null, heatMax: null, clickHandler: null, geometries: null, geoCalls: 0, fitBounds: null };
+    const calls = { heatData: null, heatMax: null, clickHandler: null, geometries: null, geoCalls: 0, fitBounds: null, markerClickHandler: null };
     function Heat(cfg) {
         this.cfg = cfg;
         this.setData = function (d) { calls.heatData = d; };
@@ -178,7 +181,11 @@ function fakeTMap() {
     }
     function LatLng(lat, lng) { this.lat = lat; this.lng = lng; this.getLat = function () { return lat; }; this.getLng = function () { return lng; }; }
     function LatLngBounds(sw, ne) { this.sw = sw; this.ne = ne; }
-    function MultiMarker(cfg) { this.cfg = cfg; this.updateGeometries = function (g) { calls.geometries = g; }; }
+    function MultiMarker(cfg) {
+        this.cfg = cfg;
+        this.updateGeometries = function (g) { calls.geometries = g; };
+        this.on = function (ev, cb) { if (ev === 'click') calls.markerClickHandler = cb; };
+    }
     function MarkerStyle(cfg) { this.cfg = cfg; }
     function Geocoder() { this.getAddress = function () { calls.geoCalls++; return Promise.resolve({ result: { address: '图书馆' } }); }; }
     return {
@@ -255,16 +262,39 @@ const noFetch = async function () { return { ok: false, status: 404, json: async
             { id: 2, type: 'found', lng: 114.36018, lat: 30.53018, mapX: 421, mapY: 101, title: 'b', location: '图书馆', date: 'd' }
         ]);
         const cnt = h.update(items);
-        check('热力层 setData 收到聚合数据', cnt === 1 && Array.isArray(fake.calls.heatData) && fake.calls.heatData.length === 1);
-        check('聚合数据不含单条精确坐标或 id', !/id|114\.36012/.test(JSON.stringify(fake.calls.heatData)), JSON.stringify(fake.calls.heatData));
+        check('热力层 setData 收到分散标点数据（每条一点）',
+            cnt === 2 && Array.isArray(fake.calls.heatData) && fake.calls.heatData.length === 2,
+            JSON.stringify(fake.calls.heatData));
+        check('热力数据带密度权重 count（渐变色依据）',
+            fake.calls.heatData.every(p => p.count >= 1) && fake.calls.heatData.some(p => p.count === 2),
+            JSON.stringify(fake.calls.heatData));
         check('热力层 setData 格式为 {lat,lng,count}', Object.keys(fake.calls.heatData[0]).sort().join(',') === 'count,lat,lng');
         check('热力上限按峰值动态调整', fake.calls.heatMax === 3, String(fake.calls.heatMax));
-        check('真实地图推送离散计数标记（不是只有热力层）',
-            Array.isArray(fake.calls.geometries) && fake.calls.geometries.length === 1 &&
-            /^n\d$/.test(fake.calls.geometries[0].styleId), JSON.stringify(fake.calls.geometries));
-        check('计数标记位置为聚合中心（无单条精确坐标）',
-            !/114\.36012|30\.53012/.test(JSON.stringify(fake.calls.geometries)),
+        check('真实地图推送可点击散点标记（每条启事一个）',
+            Array.isArray(fake.calls.geometries) && fake.calls.geometries.length === 2 &&
+            /^d[1-4]$/.test(fake.calls.geometries[0].styleId), JSON.stringify(fake.calls.geometries));
+        check('散点标记携带真实启事 id（非 heat-序号）',
+            fake.calls.geometries.map(g => g.id).sort().join(',') === '1,2', JSON.stringify(fake.calls.geometries));
+        check('散点标记位置为单条真实坐标',
+            fake.calls.geometries.some(g => g.position.lng === 114.36012 && g.position.lat === 30.53012),
             JSON.stringify(fake.calls.geometries));
+        // 点击散点 -> 回调传真实 id
+        {
+            const fake2 = fakeTMap();
+            const env2 = makeSandbox({ fetch: okFetch, TMap: fake2.TMap });
+            const GL2 = loadModule(env2.sandbox);
+            let clickedId = null;
+            const h2 = await GL2.mount(env2.container, { onMarkerClick: function (id) { clickedId = id; } });
+            h2.update(M.normalizeHeatItems([
+                { id: 77, type: 'lost', lng: 114.36012, lat: 30.53012, mapX: 420, mapY: 100 }
+            ]));
+            check('散点点击回调已绑定', typeof fake2.calls.markerClickHandler === 'function');
+            if (typeof fake2.calls.markerClickHandler === 'function') {
+                fake2.calls.markerClickHandler({ geometry: { id: '77' } });
+                check('点击散点把真实启事 id 传给回调（可打开详情）', clickedId === 77, String(clickedId));
+            }
+        }
+
         // overview 模式：视野自动纳入全部点
         const ov = fakeTMap();
         const ovEnv = makeSandbox({ fetch: okFetch, TMap: ov.TMap });
@@ -329,10 +359,13 @@ const noFetch = async function () { return { ok: false, status: 404, json: async
     check('只使用官方真实存在的 API', OFFICIAL_APIS.every(a => mapSrc.indexOf(a) >= 0), OFFICIAL_APIS.filter(a => mapSrc.indexOf(a) < 0).join(','));
     check('坐标系标注 GCJ-02 且不做 WGS-84 转换', /GCJ-02/.test(mapSrc) && !/WGS-?84\s*(?:to|2|=>|转)/i.test(mapSrc));
     check('地图容器固定高度常量存在', /MAP_GL_HEIGHT/.test(mapSrc) && /canvas\.style\.height/.test(mapSrc));
-    check('热力层只做聚合（setData 前先 aggregate）', /aggregateHeatPoints\(withApproxGeo\(normalizeHeatItems/.test(mapSrc));
+    check('热力层用分散标点数据（setData 前先 aggregate 保留每条点与密度）', /aggregateHeatPoints\(withApproxGeo\(normalizeHeatItems/.test(mapSrc));
     check('混合数据下老示意图坐标折算为近似经纬度（不再只显示 1 个点）',
         /function withApproxGeo/.test(mapSrc) && /aggregateHeatPoints\(withApproxGeo\(normalizeHeatItems/.test(mapSrc));
-    check('真实地图有离散计数标记（圆点+数字，不只靠透明热力斑）', /buildHeatMarkerStyles/.test(mapSrc) && /pinLayer\.updateGeometries/.test(mapSrc));
+    check('真实地图有可点击散点标记（不只靠透明热力斑）', /buildHeatMarkerStyles/.test(mapSrc) && /pinLayer\.updateGeometries/.test(mapSrc));
+    check('散点标记携带真实启事 id（toMarkerData）', /function toMarkerData/.test(mapSrc) && /toMarkerData\(pts\)/.test(mapSrc));
+    check('散点绑定 click 事件回传启事 id', /pinLayer\.on\('click'/.test(mapSrc) && /onMarkerClick\(id\)/.test(mapSrc));
+    check('热力图页面把 onMarkerClick 接到 showItemDetail', /onMarkerClick:\s*function\s*\(id\)[\s\S]{0,60}showItemDetail/.test(hmSrc));
     check('热力上限按峰值动态调整（不写死 max=60 抹平数据）', /heat\.setMax/.test(mapSrc));
     check('视野自适应只在 overview 模式启用（公开页不被重置）', /opts\.overview === true && pts\.length && canFitBounds/.test(mapSrc) && /overview:\s*true/.test(adminSrc));
     check('降级链路覆盖多种失败原因', (mapSrc.match(/return fallback\(/g) || []).length >= 6);

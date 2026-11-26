@@ -146,7 +146,7 @@
                     <div id="hmMapNotice" class="hidden mt-3 p-3 rounded-xl border-2 border-amber-200 bg-amber-50 text-amber-800 text-xs leading-relaxed">
                         <i class="fa fa-info-circle mr-1"></i><span id="hmMapNoticeText"></span>
                     </div>
-                    <p class="text-xs text-slate-400 mt-3"><i class="fa fa-lightbulb-o mr-1 text-amber-500"></i>徽章颜色由冷到暖表示启事由稀疏到高发，数字为该区域条数；点击下方列表可查看物品详情。</p>
+                    <p class="text-xs text-slate-400 mt-3"><i class="fa fa-lightbulb-o mr-1 text-amber-500"></i>每个标点代表一条启事，颜色由冷到暖表示周边越集中；<b>点击地图标点即可查看该启事详情</b>，也可点击下方列表。</p>
                 </div>
 
                 <div class="card-art p-5">
@@ -260,7 +260,7 @@
                 } else {
                     notice.classList.remove('hidden');
                     text.textContent = HM_FALLBACK_TEXT[handle.reason] ||
-                        '当前使用校内示意图热力图；热力点为聚合展示，不显示单条启事的精确坐标。';
+                        '当前使用校内示意图热力图；每个标点代表一条启事，点击标点可查看详情。';
                 }
             }
             renderHeatmap();
@@ -300,7 +300,9 @@
             if (window.CampusMapGL) {
                 window.CampusMapGL.mount(mapWrap, {
                     forceSvg: !hasGeo,
-                    onMode: onHeatmapMode
+                    onMode: onHeatmapMode,
+                    // 点击地图上的散点，打开对应启事详情（common.js 的全局弹窗）
+                    onMarkerClick: function (id) { if (id) showItemDetail(id); }
                 }).catch(function () { /* 同步兜底已渲染 SVG */ });
             }
         });
