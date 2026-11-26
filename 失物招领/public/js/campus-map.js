@@ -157,6 +157,113 @@ function isFiniteNumber(v) {
 }
 function round6(n) { return Math.round(Number(n) * 1e6) / 1e6; }
 
+// ===== 与小程序 heatmap.js 逐项对齐的「网格 KDE 色场」=====
+// 小程序用微信原生 <map> 的 polygon 画色场；网页端 GL 用 T.MultiPolygon 画同一套色场。
+// 参数、色阶、gamma、外扩比例全部与小程序 pages/heatmap/heatmap.js 保持一致，
+// 这样两端的冷暖疏密观感完全一致，而不是依赖腾讯 visualization.Heat（该组件在连续
+// 密度场上几乎不可见，用户只看到散点）。
+const FIELD_COLS = 20;          // 色场网格列数（与小程序一致）
+const FIELD_ROWS = 14;          // 色场网格行数
+const KDE_SIGMA_M = 190;        // 高斯核半径（米，与小程序一致）
+const FIELD_GAMMA = 1.5;        // 密度 gamma 压缩幂次（与小程序一致）
+const FIELD_OVERLAP = 0.06;     // 相邻格外扩比例，消除缝隙形成的方格线
+// 连续色阶：青绿(稀疏) -> 黄(一般) -> 橙(集中) -> 玫红(高发)，alpha 上限 0.30
+const FIELD_GRADIENT = [
+  { p: 0.00, rgb: [14, 159, 142], a: 0.00 },
+  { p: 0.18, rgb: [14, 159, 142], a: 0.04 },
+  { p: 0.42, rgb: [234, 179, 8], a: 0.10 },
+  { p: 0.68, rgb: [234, 88, 12], a: 0.18 },
+  { p: 1.00, rgb: [225, 29, 72], a: 0.30 }
+];
+
+/** 归一化密度 -> 连续色阶，返回 {rgb:[r,g,b], a}（与小程序 fieldColor 一致） */
+function fieldColor(t) {
+  let lo = FIELD_GRADIENT[0], hi = FIELD_GRADIENT[FIELD_GRADIENT.length - 1];
+  for (let i = 0; i < FIELD_GRADIENT.length - 1; i++) {
+    if (t >= FIELD_GRADIENT[i].p && t <= FIELD_GRADIENT[i + 1].p) {
+      lo = FIELD_GRADIENT[i]; hi = FIELD_GRADIENT[i + 1]; break;
+    }
+  }
+  const f = (t - lo.p) / (hi.p - lo.p || 1);
+  const rgb = lo.rgb.map(function (v, i) { return Math.round(v + (hi.rgb[i] - v) * f); });
+  return { rgb: rgb, a: lo.a + (hi.a - lo.a) * f };
+}
+
+function rgbCss(rgb, a) {
+  return 'rgba(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ',' + Number(a.toFixed(3)) + ')';
+}
+
+/**
+ * 生成网格 KDE 色场格子（供 GL MultiPolygon 绘制），与小程序 buildFieldPolygons 同算法。
+ * 返回 [{ lat, lng, halfLat, halfLng, t, color, styleId }]；t<0.03 的格子不画（边缘平滑淡出）。
+ * 每格四至由 halfLat/halfLng 给出，色值由连续色阶插值，alpha 上限 0.30 保证底图清晰。
+ */
+function buildFieldPolygons(points, opts) {
+  const o = opts || {};
+  const cols = Number(o.cols) > 0 ? Math.round(Number(o.cols)) : FIELD_COLS;
+  const rows = Number(o.rows) > 0 ? Math.round(Number(o.rows)) : FIELD_ROWS;
+  const sigma = Number(o.sigma) > 0 ? Number(o.sigma) : KDE_SIGMA_M;
+  const gamma = Number(o.gamma) > 0 ? Number(o.gamma) : FIELD_GAMMA;
+  const overlap = Number(o.overlap) > 0 ? Number(o.overlap) : FIELD_OVERLAP;
+  const pts = (Array.isArray(points) ? points : []).filter(function (p) {
+    return p && isFiniteNumber(p.lng) && isFiniteNumber(p.lat) && isChinaGcj02(p.lng, p.lat);
+  });
+  if (!pts.length) return [];
+
+  let minLng = Infinity, maxLng = -Infinity, minLat = Infinity, maxLat = -Infinity;
+  pts.forEach(function (p) {
+    minLng = Math.min(minLng, Number(p.lng)); maxLng = Math.max(maxLng, Number(p.lng));
+    minLat = Math.min(minLat, Number(p.lat)); maxLat = Math.max(maxLat, Number(p.lat));
+  });
+  // 向外留边，保证色带边缘平滑淡出而不是硬切在点上（与小程序一致）
+  const spanLng = Math.max(maxLng - minLng, 0.004);
+  const spanLat = Math.max(maxLat - minLat, 0.003);
+  minLng -= Math.max(spanLng * 0.18, 0.0025);
+  maxLng += Math.max(spanLng * 0.18, 0.0025);
+  minLat -= Math.max(spanLat * 0.18, 0.0018);
+  maxLat += Math.max(spanLat * 0.18, 0.0018);
+
+  const stepLng = (maxLng - minLng) / cols;
+  const stepLat = (maxLat - minLat) / rows;
+  const cosLat = Math.cos((minLat + maxLat) / 2 * Math.PI / 180);
+  const sigma2 = 2 * sigma * sigma;
+  const cells = [];
+  let peak = 0;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const lng = minLng + (c + 0.5) * stepLng;
+      const lat = maxLat - (r + 0.5) * stepLat;
+      let w = 0;
+      for (let k = 0; k < pts.length; k++) {
+        const dx = (pts[k].lng - lng) * 111320 * cosLat; // 经度方向米数
+        const dy = (pts[k].lat - lat) * 110540;          // 纬度方向米数
+        w += Math.exp(-(dx * dx + dy * dy) / sigma2);
+      }
+      if (w > peak) peak = w;
+      cells.push({ lng: lng, lat: lat, w: w });
+    }
+  }
+  if (peak <= 0) return [];
+
+  // 格子向外扩张 6%：相邻色块轻微重叠，消除渲染缝隙形成的方格线
+  const hl = stepLng / 2 * (1 + overlap);
+  const ha = stepLat / 2 * (1 + overlap);
+  const out = [];
+  cells.forEach(function (cell) {
+    const ratio = Math.min(1, cell.w / peak);
+    const t = Math.pow(ratio, gamma);
+    if (t < 0.03) return; // 过淡的格子不画，边缘平滑淡出
+    const c = fieldColor(t);
+    out.push({
+      lat: round6(cell.lat), lng: round6(cell.lng),
+      halfLat: round6(ha), halfLng: round6(hl),
+      t: Number(t.toFixed(3)),
+      color: rgbCss(c.rgb, c.a)
+    });
+  });
+  return out;
+}
+
 // 中国范围粗校验，用于拦截明显错误的经纬度（WGS-84 直喂之外的脏数据）
 function isChinaGcj02(lng, lat) {
   const a = Number(lng), b = Number(lat);
@@ -725,6 +832,17 @@ function renderSvgHeat(overlay, items, onMarkerClick) {
         });
         handle.heat = heat;
 
+        // 与小程序逐项对齐的「网格 KDE 色场」图层：用 T.MultiPolygon 逐格着色，
+        // 取代在这套连续密度场上几乎不可见的 visualization.Heat，成为真正可见的底色带。
+        // 先于小点图层创建，保证定位小点压在色场之上（可点击）。
+        let fieldLayer = null;
+        if (typeof T.MultiPolygon === 'function' && typeof T.PolygonStyle === 'function') {
+          try {
+            fieldLayer = new T.MultiPolygon({ map: map, styles: {}, geometries: [] });
+            handle.fieldLayer = fieldLayer;
+          } catch (e) { fieldLayer = null; /* 老版本 SDK 无多边形类时跳过，色场降级为 Heat */ }
+        }
+
         // 可点击定位小点：每条启事一个统一小圆点，携带真实启事 id；
         // 密度色只出现在底色热力层，点本身不带外晕。点击触发 onMarkerClick(id) 打开详情。
         let pinLayer = null;
@@ -764,6 +882,35 @@ function renderSvgHeat(overlay, items, onMarkerClick) {
           // 稀疏区落在渐变起点（近透明）、高发区落到最暖档，整片连续过渡。
           if (typeof heat.setMax === 'function') {
             try { heat.setMax(HEAT_MAX_LEVELS); } catch (e) { /* 老版本 SDK 无 setMax，忽略 */ }
+          }
+
+          // 与小程序一致的气象式网格色场：20x14 格子逐格着色，alpha 上限 0.30、不叠加，
+          // 外扩 6% + 无描边消除方格线。这是用户真正看得见的底色带（Heat 层仅作兼容兜底）。
+          if (fieldLayer && typeof fieldLayer.setStyles === 'function' && typeof fieldLayer.setGeometries === 'function') {
+            try {
+              const cells = buildFieldPolygons(pts);
+              const styles = {};
+              const geoms = cells.map(function (cell, i) {
+                const sid = 'field' + i;
+                styles[sid] = new T.PolygonStyle({
+                  color: cell.color, showBorder: false,
+                  borderColor: cell.color, borderWidth: 0
+                });
+                return {
+                  id: sid,
+                  styleId: sid,
+                  paths: [
+                    new T.LatLng(cell.lat + cell.halfLat, cell.lng - cell.halfLng),
+                    new T.LatLng(cell.lat + cell.halfLat, cell.lng + cell.halfLng),
+                    new T.LatLng(cell.lat - cell.halfLat, cell.lng + cell.halfLng),
+                    new T.LatLng(cell.lat - cell.halfLat, cell.lng - cell.halfLng)
+                  ]
+                };
+              });
+              fieldLayer.setStyles(styles);
+              fieldLayer.setGeometries(geoms);
+              handle.fieldCells = cells.length;
+            } catch (e) { /* 多边形色场失败不影响散点与列表 */ }
           }
 
           // 定位小点：每条启事一个点，id 为真实启事 id，统一 dot 样式（不按密度着色）
@@ -812,10 +959,18 @@ function renderSvgHeat(overlay, items, onMarkerClick) {
     toHeatData: toHeatData,
     toMarkerData: toMarkerData,
     buildGridHeatField: buildGridHeatField,
+    fieldColor: fieldColor,
+    buildFieldPolygons: buildFieldPolygons,
     buildPublishCoords: buildPublishCoords,
     renderSvgHeat: renderSvgHeat,
     HEAT_STOPS: HEAT_STOPS,
     heatStop: heatStop,
+    FIELD_GRADIENT: FIELD_GRADIENT,
+    FIELD_COLS: FIELD_COLS,
+    FIELD_ROWS: FIELD_ROWS,
+    KDE_SIGMA_M: KDE_SIGMA_M,
+    FIELD_GAMMA: FIELD_GAMMA,
+    FIELD_OVERLAP: FIELD_OVERLAP,
     HEAT_GRID_COLS: HEAT_GRID_COLS,
     HEAT_GRID_ROWS: HEAT_GRID_ROWS,
     HEAT_MAX_LEVELS: HEAT_MAX_LEVELS,
@@ -842,6 +997,8 @@ if (typeof module !== 'undefined' && module.exports) {
     toHeatData: toHeatData,
     toMarkerData: toMarkerData,
     buildGridHeatField: buildGridHeatField,
+    fieldColor: fieldColor,
+    buildFieldPolygons: buildFieldPolygons,
     canFitBounds: canFitBounds,
     fitPoints: fitPoints,
     svgPointFromLocation: svgPointFromLocation,
@@ -852,6 +1009,12 @@ if (typeof module !== 'undefined' && module.exports) {
     isChinaGcj02: isChinaGcj02,
     HEAT_STOPS: HEAT_STOPS,
     heatStop: heatStop,
+    FIELD_GRADIENT: FIELD_GRADIENT,
+    FIELD_COLS: FIELD_COLS,
+    FIELD_ROWS: FIELD_ROWS,
+    KDE_SIGMA_M: KDE_SIGMA_M,
+    FIELD_GAMMA: FIELD_GAMMA,
+    FIELD_OVERLAP: FIELD_OVERLAP,
     HEAT_GRID_COLS: HEAT_GRID_COLS,
     HEAT_GRID_ROWS: HEAT_GRID_ROWS,
     HEAT_MAX_LEVELS: HEAT_MAX_LEVELS

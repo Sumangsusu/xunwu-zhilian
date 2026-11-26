@@ -109,6 +109,29 @@ check('热力层 setData 格式为 {lat,lng,count}', Object.keys(heatData[0]).so
 const markerData = M.toMarkerData(agg);
 check('标记数据每条带真实 id（可点击打开对应启事）', markerData.length === 3 && markerData.every(p => p.id > 0), JSON.stringify(markerData));
 
+// 与小程序逐项对齐的网格 KDE 色场（网页端 GL MultiPolygon 的实际可见底色带）
+// 用真实武大尺度（约 1.6km 内）的聚集点，避免掺入远点把外接矩形拉大导致 σ 相对失效
+const fieldPts = Array.from({ length: 30 }, function (_, i) {
+    return { lng: 114.360 + (i % 6) * 0.0018, lat: 30.530 + Math.floor(i / 6) * 0.0014 };
+});
+const fieldCells = M.buildFieldPolygons(fieldPts);
+check('色场参数与小程序一致（20x14 / σ190m / gamma1.5 / 外扩6%）',
+    M.FIELD_COLS === 20 && M.FIELD_ROWS === 14 && M.KDE_SIGMA_M === 190 &&
+    M.FIELD_GAMMA === 1.5 && M.FIELD_OVERLAP === 0.06);
+check('色场为网格格子且按密度着色（非散点点阵）',
+    fieldCells.length > 20 && fieldCells.length <= M.FIELD_COLS * M.FIELD_ROWS,
+    'cells=' + fieldCells.length);
+check('每格四至 + 连续 rgba 色值（alpha<=0.30，无描边叠加）',
+    fieldCells.every(c => c.lat && c.lng && c.halfLat > 0 && c.halfLng > 0 &&
+        /^rgba\(\d+,\d+,\d+,[\d.]+\)$/.test(c.color) && c.t >= 0.03 && c.t <= 1),
+    JSON.stringify(fieldCells[0]));
+check('色场峰值更暖、边缘更淡（疏密可辨）',
+    Math.max.apply(null, fieldCells.map(c => c.t)) - Math.min.apply(null, fieldCells.map(c => c.t)) > 0.1);
+check('空数据不产生色场格子', M.buildFieldPolygons([]).length === 0);
+check('fieldColor 走青绿->黄->橙->玫红连续色阶',
+    JSON.stringify(M.fieldColor(0).rgb) === JSON.stringify([14, 159, 142]) &&
+    JSON.stringify(M.fieldColor(1).rgb) === JSON.stringify([225, 29, 72]));
+
 // 双写坐标
 const glCoords = M.buildPublishCoords({ mode: 'gl', lng: 114.360123456, lat: 30.530123456, locationText: '图书馆三楼' });
 check('GL 选点产出 GCJ-02 lng/lat（6 位精度）', glCoords.lng === 114.360123 && glCoords.lat === 30.530123);
@@ -167,11 +190,18 @@ function loadModule(ctx) {
 }
 
 function fakeTMap() {
-    const calls = { heatData: null, heatMax: null, clickHandler: null, geometries: null, geoCalls: 0, fitBounds: null, markerClickHandler: null };
+    const calls = { heatData: null, heatMax: null, clickHandler: null, geometries: null, geoCalls: 0, fitBounds: null, markerClickHandler: null, fieldStyles: null, fieldGeometries: null };
     function Heat(cfg) {
         this.cfg = cfg;
         this.setData = function (d) { calls.heatData = d; };
         this.setMax = function (m) { calls.heatMax = m; };
+        this.setMap = function () { };
+    }
+    function PolygonStyle(cfg) { this.cfg = cfg; }
+    function MultiPolygon(cfg) {
+        this.cfg = cfg;
+        this.setStyles = function (s) { calls.fieldStyles = s; };
+        this.setGeometries = function (g) { calls.fieldGeometries = g; };
         this.setMap = function () { };
     }
     function Map(canvas, cfg) {
@@ -193,6 +223,7 @@ function fakeTMap() {
         TMap: {
             Map: Map, LatLng: LatLng, LatLngBounds: LatLngBounds,
             MultiMarker: MultiMarker, MarkerStyle: MarkerStyle,
+            MultiPolygon: MultiPolygon, PolygonStyle: PolygonStyle,
             visualization: { Heat: Heat }, service: { Geocoder: Geocoder }
         }
     };
@@ -275,6 +306,14 @@ const noFetch = async function () { return { ok: false, status: 404, json: async
             Math.min.apply(null, fake.calls.heatData.map(p => p.count)) > 20);
         check('热力层 setData 格式为 {lat,lng,count}', Object.keys(fake.calls.heatData[0]).sort().join(',') === 'count,lat,lng');
         check('热力上限固定为密度量化上限（保证色阶稳定）', fake.calls.heatMax === M.HEAT_MAX_LEVELS, String(fake.calls.heatMax));
+        check('真实地图绘制网格 KDE 色场（MultiPolygon 逐格着色，与小程序一致）',
+            fake.calls.fieldStyles && fake.calls.fieldGeometries &&
+            fake.calls.fieldGeometries.length > 20 &&
+            Object.keys(fake.calls.fieldStyles).length === fake.calls.fieldGeometries.length,
+            'cells=' + (fake.calls.fieldGeometries || []).length);
+        check('色场每格是四点闭合多边形且 alpha 可辨识',
+            fake.calls.fieldGeometries && fake.calls.fieldGeometries[0].paths.length === 4 &&
+            /rgba\(/.test(fake.calls.fieldStyles[fake.calls.fieldGeometries[0].styleId].cfg.color));
         check('真实地图推送可点击定位小点（每条启事一个，统一 dot 样式）',
             Array.isArray(fake.calls.geometries) && fake.calls.geometries.length === 2 &&
             fake.calls.geometries[0].styleId === 'dot', JSON.stringify(fake.calls.geometries));
@@ -360,7 +399,7 @@ const noFetch = async function () { return { ok: false, status: 404, json: async
     check('配置接口路径存在且由 apiUrl 取址', /\/api\/map\/config/.test(mapSrc) && /apiPath\(MAP_CONFIG_ENDPOINT\)/.test(mapSrc));
     check('SDK 域名白名单校验存在', /MAP_ALLOWED_HOST/.test(mapSrc) && /host-not-allowed/.test(mapSrc));
 
-    const OFFICIAL_APIS = ['T.Map', 'T.LatLng', 'T.MultiMarker', 'T.MarkerStyle', 'T.visualization.Heat', 'T.service.Geocoder'];
+    const OFFICIAL_APIS = ['T.Map', 'T.LatLng', 'T.MultiMarker', 'T.MarkerStyle', 'T.MultiPolygon', 'T.PolygonStyle', 'T.visualization.Heat', 'T.service.Geocoder'];
     check('只使用官方真实存在的 API', OFFICIAL_APIS.every(a => mapSrc.indexOf(a) >= 0), OFFICIAL_APIS.filter(a => mapSrc.indexOf(a) < 0).join(','));
     check('坐标系标注 GCJ-02 且不做 WGS-84 转换', /GCJ-02/.test(mapSrc) && !/WGS-?84\s*(?:to|2|=>|转)/i.test(mapSrc));
     check('地图容器固定高度常量存在', /MAP_GL_HEIGHT/.test(mapSrc) && /canvas\.style\.height/.test(mapSrc));
@@ -372,6 +411,16 @@ const noFetch = async function () { return { ok: false, status: 404, json: async
     check('定位点缩成点状而非饼状（core<=3 / SVG r<=3）',
         /const core = 2\.6/.test(mapSrc) && /r="2\.6" fill="#20304F"/.test(mapSrc));
     check('集中度由气象式底色色带表达（GL + SVG 双层）', /new T\.visualization\.Heat/.test(mapSrc) && /heat-wash-layer/.test(mapSrc) && /feGaussianBlur/.test(mapSrc));
+    check('网页端 GL 用 MultiPolygon 网格色场，与小程序渲染口径一致',
+        /new T\.MultiPolygon/.test(mapSrc) && /new T\.PolygonStyle/.test(mapSrc) &&
+        /function buildFieldPolygons/.test(mapSrc) && /fieldLayer\.setGeometries\(geoms\)/.test(mapSrc));
+    check('色场参数与小程序逐项对齐（20x14 / 190m / gamma1.5 / 外扩6%）',
+        /FIELD_COLS = 20/.test(mapSrc) && /FIELD_ROWS = 14/.test(mapSrc) &&
+        /KDE_SIGMA_M = 190/.test(mapSrc) && /FIELD_GAMMA = 1\.5/.test(mapSrc) &&
+        /FIELD_OVERLAP = 0\.06/.test(mapSrc) && /\* 111320 \* cosLat/.test(mapSrc));
+    check('色场逐格着色、透明描边、t<0.03 边缘淡出（无方格线/无全粉）',
+        /if \(t < 0\.03\) return/.test(mapSrc) && /showBorder: false/.test(mapSrc) &&
+        /Math\.pow\(ratio, gamma\)/.test(mapSrc));
     check('底色带半透明可辨识、大模糊，透出底图（不再盖住地图）',
         /gradientColor: \{[\s\S]{0,300}0\.30/.test(mapSrc) && /stdDeviation="34"/.test(mapSrc) && /Math\.min\(0\.34, 0\.10/.test(mapSrc));
     check('密度 gamma 压缩（幂>1 压低低密度，避免整片全粉看不出疏密）',
