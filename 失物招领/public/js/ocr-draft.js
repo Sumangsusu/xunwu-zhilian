@@ -2,7 +2,8 @@
  * 寻物智联 · 拍照识别文字 -> 发布页描述草稿（B2）
  *
  * 隐私红线（与「联系方式打码 + 答对才解锁」同一套逻辑）：
- *   1) 识别结果只作填表草稿，绝不自动提交、绝不自行入库，用户必须亲自点「立即发布」；
+ *   1) 识别结果只作上方结构化字段的填表草稿，「详细描述」始终留空由用户自己写；
+ *      绝不自动提交、绝不自行入库，用户必须亲自点「立即发布」；
  *   2) 证件号 / 学号 / 手机号一律脱敏，且不进入防冒领问答的题干或选项；
  *   3) 图片只经同源后端代理，不长期留存，前端不写任何密钥或外部地址；
  *   4) 接口未启用 / 超时 / 识别为空，一律给可见提示，不弹报错弹窗、不白屏。
@@ -45,9 +46,10 @@
         'handbag', 'purse', 'book', 'notebook', 'umbrella', 'bottle', 'cup', 'mug', 'glasses',
         'sunglasses', 'key', 'card', 'pen', 'ruler', 'scissors', 'lamp', 'lock', 'battery'];
     var CN_CHARS = /[\u4e00-\u9fff]/;
+    // 详细描述不参与自动填入，提示文案也不包含它
     var FIELD_LABELS = {
         title: '物品名称', category: '物品分类', color: '主色',
-        features: '特征标签', description: '详细描述'
+        features: '特征标签'
     };
 
     /** 前端二次脱敏：即使后端返回异常内容，也不让敏感编号落进公开描述字段。 */
@@ -61,15 +63,11 @@
     }
 
     /**
-     * 只生成草稿文本：空描述直接填入；已有内容则追加，绝不覆盖用户输入。
-     * 返回 { text, changed }，由调用方决定是否写回 textarea。
+     * 产品要求：智能识别不再写入「详细描述」，该栏保持空白（已填内容原样保留）。
+     * 保留此函数仅为兼容旧调用方，永远返回原值、changed=false。
      */
     function composeDraft(current, recognized) {
-        var cur = String(current == null ? '' : current);
-        var add = credibleLines(recognized);
-        if (!add) return { text: cur, changed: false };
-        if (!cur.trim()) return { text: add, changed: true };
-        return { text: cur.replace(/\s+$/, '') + '\n' + add, changed: true };
+        return { text: String(current == null ? '' : current), changed: false };
     }
 
     function clean(v) { return String(v == null ? '' : v).trim(); }
@@ -232,9 +230,9 @@
 
     /**
      * 文字识别 + 物品识别 -> 发布页草稿。
-     * 先按文字提取，再用物品识别补齐仍为空的字段；描述由可靠结果生成通顺草稿，
-     * 不整段塞入 OCR 原文（包装/参数/水印会造成"凌乱文字"）。
-     * 返回 { values, filled }，filled 为实际新填入的字段名数组。
+     * 先按文字提取，再用物品识别补齐仍为空的上方字段；
+     * 「详细描述」一律不自动填入，保持空白由用户手写，避免凌乱文字污染公开内容。
+     * 返回 { values, filled }，filled 为实际新填入的字段名数组（不含 description）。
      */
     function composeFormDraft(text, recognition, current) {
         var originalDesc = clean(current && current.description);
@@ -260,12 +258,8 @@
         ['title', 'category', 'color', 'features'].forEach(function (k) {
             if (!clean(values[k]) && clean(fromText[k])) values[k] = fromText[k];
         });
-        // 详细描述：用户已填内容一律保留；否则由可靠识别结果生成通顺草稿，
-        // OCR 只有严格过滤后的短句才作兜底，识别失败则留空待手填。
-        if (!originalDesc) {
-            var generated = buildDescriptionDraft(values, descriptiveLines(text));
-            if (generated) values.description = generated;
-        }
+        // 详细描述：智能识别不写入。values.description 保持当前值（空则继续空白），
+        // 用户已填内容也不改动；filled 不含 description，提示里不会再提到它。
 
         var filled = [];
         Object.keys(FIELD_LABELS).forEach(function (k) {
@@ -420,7 +414,8 @@
                     if (!data || data.success !== true || !data.text) {
                         throw new Error((data && data.message) || '文字识别暂时不可用，请手动填写描述');
                     }
-                    // 描述以 OCR 原文追加不覆盖；其余字段只填空，不覆盖用户输入
+                    // 只填上方结构化字段（且只填空字段，不覆盖用户输入）；
+                    // 详细描述一律不写回，保持空白或用户已填的原样。
                     var current = {
                         title: valueOf('itemTitle'),
                         category: valueOf('itemCategory'),
@@ -437,7 +432,6 @@
                         var el = document.getElementById(ids[k]);
                         if (el) el.value = form.values[k];
                     });
-                    desc.value = form.values.description;
 
                     if (!form.filled.length) {
                         showNotice('未识别到可填入的内容，请手动填写发布信息。', 'error');

@@ -59,8 +59,8 @@ const applied = draft.apply(normal, {
 });
 check('只填空字段，不覆盖用户输入',
     applied.title === '我自己写的标题' && applied.category === '箱包类' && applied.color === '黑色');
-check('特征与描述草稿生成',
-    applied.features === '背包、运动' && applied.description.indexOf('识别主色：黑色') >= 0);
+check('特征带入、描述保持空白',
+    applied.features === '背包、运动' && applied.description === '');
 
 const applied2 = draft.apply(normal, {
     title: 'T', category: '钥匙', color: '红色', features: '旧标签', description: '已有描述'
@@ -140,8 +140,8 @@ check('类别 / 主色 / 特征带入发布表单',
     els.itemCategory.value === '箱包类' && els.itemColor.value === '黑色' &&
     els.itemFeatures.value === '背包、运动',
     [els.itemCategory.value, els.itemColor.value, els.itemFeatures.value].join(' / '));
-check('名称与描述作为草稿带入',
-    els.itemTitle.value === '双肩包' && els.itemDesc.value.indexOf('识别主色：黑色') >= 0);
+check('名称带入、描述栏保持空白',
+    els.itemTitle.value === '双肩包' && els.itemDesc.value === '');
 check('草稿一次性消费（刷新不覆盖）', !(draft.DRAFT_KEY in store3));
 
 // 用户已有内容不被覆盖（第二次模拟）

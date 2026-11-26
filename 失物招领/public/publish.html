@@ -672,9 +672,10 @@ profile.html
             try { draft = JSON.parse(raw); } catch (e) { return; }
             if (!draft || draft.v !== 1) return;
 
+            // 详细描述（itemDesc）不参与智能识别填入，保持空白由用户自己写
             const ids = {
                 title: 'itemTitle', category: 'itemCategory', color: 'itemColor',
-                features: 'itemFeatures', description: 'itemDesc'
+                features: 'itemFeatures'
             };
             const current = {};
             Object.keys(ids).forEach(k => {

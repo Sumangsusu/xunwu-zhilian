@@ -71,6 +71,7 @@
 
     /**
      * 草稿 -> 表单值。只填空字段，绝不覆盖用户已输入的内容。
+     * 「详细描述」不参与识别填入，始终保持当前值（未填即空白）。
      * current / 返回值均为 { title, category, color, features, description }
      */
     function apply(draft, current) {
@@ -90,14 +91,7 @@
             out.features = draft.features.join('、');
         }
         if (!out.title && draft.type) out.title = draft.type;
-        if (!out.description) {
-            var bits = [];
-            if (draft.color) bits.push('识别主色：' + draft.color);
-            if (draft.features && draft.features.length) bits.push('识别特征：' + draft.features.join('、'));
-            if (bits.length) {
-                out.description = bits.join('；') + '。（由智能识别预填，请核对并补充细节）';
-            }
-        }
+        // 详细描述：识别结果不写入，out.description 原样带回，未填则继续空白。
         return out;
     }
 
